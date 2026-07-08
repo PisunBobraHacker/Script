@@ -1,9 +1,10 @@
--- // Steal a Brainrot — Full Script v3 for Xeno
--- // AntiHit (защита от дубинок), Void Touch (отбрасывает врагов), NoClip, Invisible, AutoSteal, Fly, Lock Base, Teleport
+-- // Steal a Brainrot — Final Script v10 for Xeno
+-- // Имба Void Touch из v3 + всё из v9, без Anti TP Back
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
@@ -11,7 +12,6 @@ local Camera = Workspace.CurrentCamera
 local playerGui = LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 10)
 if not playerGui then playerGui = game:GetService("CoreGui") end
 
--- Переменные
 local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 local Humanoid = Character:WaitForChild("Humanoid")
 local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
@@ -20,14 +20,16 @@ local invisible = false
 local noclip = false
 local antihit = false
 local voidtouch = false
-local autosteal = false
-local flying = false
+local speedhack = false
 local baseLocked = false
-local flySpeed = 50
+local espEnabled = false
+local speedMultiplier = 2
+local voidTarget = nil
 
-local flyBV, flyBG, flyConn = nil, nil, nil
-local noclipConn, antihitConn, voidtouchConn, autostealConn = nil, nil, nil, nil
-local flyKeys = {W = false, A = false, S = false, D = false, Space = false, LeftControl = false}
+local noclipConn, antihitConn, voidtouchConn = nil, nil, nil
+local espObjects = {}
+local dropdownOpen = false
+local dropdownButtons = {}
 
 -- ==================== ФУНКЦИИ ====================
 
@@ -50,11 +52,32 @@ local function setNoClip(state)
     noclip = state
     if state then
         noclipConn = RunService.Stepped:Connect(function()
-            if Character then
-                for _, part in ipairs(Character:GetDescendants()) do
-                    if part:IsA("BasePart") and part.CanCollide then
-                        part.CanCollide = false
+            if not Character or not HumanoidRootPart then return end
+            local moveDir = Humanoid.MoveDirection
+            if moveDir.Magnitude < 0.1 then return end
+            
+            local rayOrigin = HumanoidRootPart.Position
+            local rayDirection = moveDir * 3
+            
+            local raycastParams = RaycastParams.new()
+            raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+            raycastParams.FilterDescendantsInstances = {Character}
+            
+            local rayResult = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+            
+            if rayResult then
+                if math.abs(rayResult.Normal.Y) < 0.3 then
+                    for _, part in ipairs(Character:GetDescendants()) do
+                        if part:IsA("BasePart") then part.CanCollide = false end
                     end
+                else
+                    for _, part in ipairs(Character:GetDescendants()) do
+                        if part:IsA("BasePart") then part.CanCollide = true end
+                    end
+                end
+            else
+                for _, part in ipairs(Character:GetDescendants()) do
+                    if part:IsA("BasePart") then part.CanCollide = true end
                 end
             end
         end)
@@ -62,95 +85,74 @@ local function setNoClip(state)
         if noclipConn then noclipConn:Disconnect(); noclipConn = nil end
         if Character then
             for _, part in ipairs(Character:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = true
-                end
+                if part:IsA("BasePart") then part.CanCollide = true end
             end
         end
     end
 end
 
--- ANTIHIT (защита от дубинок: мозг не выпадает, не отлетаешь)
+-- ANTIHIT
 local function setAntiHit(state)
     antihit = state
     if state then
         antihitConn = RunService.Heartbeat:Connect(function()
             if not Character or not Humanoid or not HumanoidRootPart then return end
-            
-            -- Блокируем стан и падение
-            local currentState = Humanoid:GetState()
-            if currentState == Enum.HumanoidStateType.FallingDown then
+            if Humanoid:GetState() == Enum.HumanoidStateType.FallingDown then
                 Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
             end
-            
-            -- Обнуляем скорость от ударов
             if HumanoidRootPart.Velocity.Magnitude > 100 then
                 HumanoidRootPart.Velocity = Vector3.zero
                 HumanoidRootPart.RotVelocity = Vector3.zero
             end
-            
-            -- Блокируем ragdoll
             pcall(function()
                 if Humanoid:FindFirstChild("Ragdoll") then
                     Humanoid:FindFirstChild("Ragdoll"):Destroy()
                 end
             end)
-            
-            -- Защита предмета (мозга) в руках
-            for _, obj in ipairs(Character:GetChildren()) do
-                if obj:IsA("Tool") or obj.Name:lower():find("brain") or obj.Name:lower():find("rot") then
-                    -- Фиксируем предмет чтобы не выпал
-                    if obj:IsA("BasePart") then
-                        obj.Anchored = false
-                        obj.CanCollide = false
-                    end
-                end
-            end
-            
-            -- Проверяем предметы которые держим
-            pcall(function()
-                local tool = Character:FindFirstChildOfClass("Tool")
-                if tool then
-                    -- Не даем выбить предмет
-                    tool.Parent = Character
-                end
-            end)
+            local tool = Character:FindFirstChildOfClass("Tool")
+            if tool then tool.Parent = Character end
         end)
     else
         if antihitConn then antihitConn:Disconnect(); antihitConn = nil end
     end
 end
 
--- VOID TOUCH (враги отлетают за карту при касании)
+-- VOID TOUCH (имба из v3)
 local function setVoidTouch(state)
     voidtouch = state
     if state then
-        -- Создаем невидимую сферу вокруг игрока которая отбрасывает врагов
         local function findEnemies()
             local enemies = {}
-            for _, player in ipairs(Players:GetPlayers()) do
-                if player ~= LocalPlayer and player.Character then
-                    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-                    local hum = player.Character:FindFirstChild("Humanoid")
+            if voidTarget then
+                local char = voidTarget.Character
+                if char then
+                    local hrp = char:FindFirstChild("HumanoidRootPart")
+                    local hum = char:FindFirstChild("Humanoid")
                     if hrp and hum and hum.Health > 0 then
-                        table.insert(enemies, {player = player, root = hrp, humanoid = hum, character = player.Character})
+                        table.insert(enemies, {root = hrp, humanoid = hum})
                     end
                 end
-            end
-            -- Также ищем NPC/monsters
-            for _, obj in ipairs(Workspace:GetDescendants()) do
-                if obj:IsA("Humanoid") and obj.Health > 0 and obj.Parent and obj.Parent ~= Character then
-                    local root = obj.Parent:FindFirstChild("HumanoidRootPart") or obj.Parent:FindFirstChild("Torso")
-                    if root then
-                        local isPlayer = false
-                        for _, plr in ipairs(Players:GetPlayers()) do
-                            if plr.Character == obj.Parent then
-                                isPlayer = true
-                                break
-                            end
+            else
+                for _, player in ipairs(Players:GetPlayers()) do
+                    if player ~= LocalPlayer and player.Character then
+                        local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                        local hum = player.Character:FindFirstChild("Humanoid")
+                        if hrp and hum and hum.Health > 0 then
+                            table.insert(enemies, {root = hrp, humanoid = hum})
                         end
-                        if not isPlayer then
-                            table.insert(enemies, {player = nil, root = root, humanoid = obj, character = obj.Parent})
+                    end
+                end
+                for _, obj in ipairs(Workspace:GetDescendants()) do
+                    if obj:IsA("Humanoid") and obj.Health > 0 and obj.Parent ~= Character then
+                        local root = obj.Parent:FindFirstChild("HumanoidRootPart") or obj.Parent:FindFirstChild("Torso")
+                        if root then
+                            local isPlayer = false
+                            for _, plr in ipairs(Players:GetPlayers()) do
+                                if plr.Character == obj.Parent then isPlayer = true; break end
+                            end
+                            if not isPlayer then
+                                table.insert(enemies, {root = root, humanoid = obj})
+                            end
                         end
                     end
                 end
@@ -160,16 +162,14 @@ local function setVoidTouch(state)
         
         voidtouchConn = RunService.Heartbeat:Connect(function()
             if not Character or not HumanoidRootPart then return end
-            
             local enemies = findEnemies()
             local myPos = HumanoidRootPart.Position
-            local voidDistance = 15 -- радиус действия
+            local voidDistance = 15
             
             for _, enemy in ipairs(enemies) do
                 if enemy.root and enemy.root.Parent then
                     local dist = (enemy.root.Position - myPos).Magnitude
                     if dist <= voidDistance then
-                        -- Отбрасываем врага далеко за карту
                         local direction = (enemy.root.Position - myPos).Unit
                         if direction.Magnitude < 0.1 then
                             direction = Vector3.new(math.random(-1, 1), 1, math.random(-1, 1)).Unit
@@ -177,8 +177,6 @@ local function setVoidTouch(state)
                         local launchVelocity = direction * 5000 + Vector3.new(0, 2000, 0)
                         enemy.root.Velocity = launchVelocity
                         enemy.root.RotVelocity = Vector3.new(math.random(-50, 50), math.random(-50, 50), math.random(-50, 50))
-                        
-                        -- Наносим урон врагу (опционально)
                         pcall(function()
                             if enemy.humanoid then
                                 enemy.humanoid:TakeDamage(99999)
@@ -193,58 +191,58 @@ local function setVoidTouch(state)
     end
 end
 
--- AUTOSTEAL
-local function findBrain()
+-- LOCK BASE
+local function findBasePrompt()
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("ProximityPrompt") and obj.Enabled then
-            return obj
-        end
-    end
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("BasePart") and (obj.Name:lower():find("brain") or obj.Name:lower():find("rot")) then
-            return obj
+            local p = obj.Parent
+            if p and (p.Name:lower():find("base") or p.Name:lower():find("capture") or p.Name:lower():find("claim")) then
+                return obj
+            end
         end
     end
     return nil
 end
 
-local function autoStealLoop()
-    while autosteal and Character and HumanoidRootPart do
-        local target = findBrain()
-        if target then
-            local pos = target:IsA("ProximityPrompt") and target.Parent.Position or target.Position
-            HumanoidRootPart.CFrame = CFrame.new(pos + Vector3.new(0, 2, 0))
-            
-            if target:IsA("ProximityPrompt") then
-                fireproximityprompt(target)
-            else
-                firetouchinterest(HumanoidRootPart, target, 0)
-                wait(0.05)
-                firetouchinterest(HumanoidRootPart, target, 1)
-            end
-        end
-        wait(0.3)
-    end
-end
-
-local function setAutoSteal(state)
-    autosteal = state
+local function setBaseLock(state)
+    baseLocked = state
     if state then
-        spawn(autoStealLoop)
+        spawn(function()
+            while baseLocked and Character and HumanoidRootPart do
+                local prompt = findBasePrompt()
+                if prompt then
+                    HumanoidRootPart.CFrame = CFrame.new(prompt.Parent.Position + Vector3.new(0, 2, 0))
+                    fireproximityprompt(prompt)
+                end
+                wait(0.5)
+            end
+        end)
     end
 end
 
--- TELEPORT TO BASE
+-- SPEED HACK
+local function setSpeedHack(state)
+    speedhack = state
+    if Humanoid then
+        if state then
+            Humanoid.WalkSpeed = 16 * speedMultiplier
+        else
+            Humanoid.WalkSpeed = 16
+        end
+    end
+end
+
+local function updateSpeed(mult)
+    speedMultiplier = mult
+    if speedhack and Humanoid then
+        Humanoid.WalkSpeed = 16 * mult
+    end
+end
+
+-- TELEPORT
 local function findBase()
     for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("SpawnLocation") and obj.Enabled then
-            return obj
-        end
-    end
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("BasePart") and (obj.Name:lower():find("base") or obj.Name:lower():find("safe") or obj.Name:lower():find("spawn")) then
-            return obj
-        end
+        if obj:IsA("SpawnLocation") and obj.Enabled then return obj end
     end
     return nil
 end
@@ -252,106 +250,71 @@ end
 local function teleportToBase()
     local base = findBase()
     if base and HumanoidRootPart then
-        local pos = base:IsA("BasePart") and base.Position or base.CFrame.Position
-        HumanoidRootPart.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0))
-        return true
-    end
-    return false
-end
-
--- LOCK BASE
-local baseLockPart = nil
-
-local function setBaseLock(state)
-    baseLocked = state
-    if state then
-        local base = findBase()
-        if base then
-            local basePos = base:IsA("BasePart") and base.Position or base.CFrame.Position
-            
-            baseLockPart = Instance.new("Part")
-            baseLockPart.Name = "BaseLock"
-            baseLockPart.Size = Vector3.new(20, 10, 20)
-            baseLockPart.Position = basePos
-            baseLockPart.Anchored = true
-            baseLockPart.CanCollide = true
-            baseLockPart.Transparency = 1
-            baseLockPart.Parent = Workspace
-            
-            spawn(function()
-                while baseLocked and Character and HumanoidRootPart and baseLockPart do
-                    HumanoidRootPart.CFrame = CFrame.new(basePos + Vector3.new(0, 3, 0))
-                    wait(0.1)
-                end
-            end)
-        end
-    else
-        if baseLockPart then
-            baseLockPart:Destroy()
-            baseLockPart = nil
-        end
+        local targetPos = base.Position + Vector3.new(0, 3, 0)
+        local tweenInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        local goal = {CFrame = CFrame.new(targetPos)}
+        local tween = TweenService:Create(HumanoidRootPart, tweenInfo, goal)
+        tween:Play()
     end
 end
 
--- FLY
-local function startFly()
-    if not HumanoidRootPart or not Humanoid then return end
+-- ESP
+local function createESP(player)
+    if not player.Character then return end
+    if espObjects[player] then
+        for _, obj in ipairs(espObjects[player]) do obj:Destroy() end
+    end
     
-    flyBV = Instance.new("BodyVelocity")
-    flyBV.MaxForce = Vector3.new(1, 1, 1) * 999999
-    flyBV.P = 9000
-    flyBV.Velocity = Vector3.zero
-    flyBV.Name = "FlyVel"
-    flyBV.Parent = HumanoidRootPart
+    local items = {}
+    
+    local hl = Instance.new("Highlight")
+    hl.FillColor = Color3.fromRGB(255, 0, 0)
+    hl.FillTransparency = 0.5
+    hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+    hl.Parent = player.Character
+    table.insert(items, hl)
+    
+    local head = player.Character:WaitForChild("Head", 5)
+    if head then
+        local bb = Instance.new("BillboardGui")
+        bb.Size = UDim2.new(0, 100, 0, 30)
+        bb.StudsOffset = Vector3.new(0, 3, 0)
+        bb.AlwaysOnTop = true
+        bb.Parent = head
+        
+        local name = Instance.new("TextLabel")
+        name.Size = UDim2.new(1, 0, 1, 0)
+        name.BackgroundTransparency = 1
+        name.Text = player.Name
+        name.TextColor3 = Color3.fromRGB(255, 0, 0)
+        name.Font = Enum.Font.GothamBold
+        name.TextSize = 14
+        name.Parent = bb
+        
+        table.insert(items, bb)
+    end
+    
+    espObjects[player] = items
+end
 
-    flyBG = Instance.new("BodyGyro")
-    flyBG.MaxTorque = Vector3.new(1, 1, 1) * 999999
-    flyBG.P = 9000
-    flyBG.D = 100
-    flyBG.CFrame = HumanoidRootPart.CFrame
-    flyBG.Name = "FlyGyro"
-    flyBG.Parent = HumanoidRootPart
-
-    Humanoid.PlatformStand = true
-
-    flyConn = RunService.Heartbeat:Connect(function()
-        if not flying or not Character or not HumanoidRootPart or not Humanoid then
-            stopFly()
-            return
+local function setESP(state)
+    espEnabled = state
+    if state then
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then createESP(p) end
         end
-
-        Humanoid.PlatformStand = true
-
-        local cam = Camera
-        local look = cam.CFrame.LookVector
-        local right = cam.CFrame.RightVector
-        local up = Vector3.new(0, 1, 0)
-
-        local dir = Vector3.zero
-        if flyKeys.W then dir += look end
-        if flyKeys.S then dir -= look end
-        if flyKeys.A then dir -= right end
-        if flyKeys.D then dir += right end
-        if flyKeys.Space then dir += up end
-        if flyKeys.LeftControl then dir -= up end
-
-        if dir.Magnitude > 1 then dir = dir.Unit end
-
-        if flyBV and flyBV.Parent then flyBV.Velocity = dir * flySpeed end
-        if flyBG and flyBG.Parent then flyBG.CFrame = cam.CFrame * CFrame.Angles(-math.rad(90), 0, 0) end
-    end)
-end
-
-local function stopFly()
-    if flyConn then flyConn:Disconnect(); flyConn = nil end
-    if flyBV then pcall(function() flyBV:Destroy() end); flyBV = nil end
-    if flyBG then pcall(function() flyBG:Destroy() end); flyBG = nil end
-    if Humanoid then Humanoid.PlatformStand = false end
-end
-
-local function setFly(state)
-    flying = state
-    if state then startFly() else stopFly() end
+        Players.PlayerAdded:Connect(function(p)
+            p.CharacterAdded:Connect(function()
+                wait(0.5)
+                if espEnabled then createESP(p) end
+            end)
+        end)
+    else
+        for _, items in pairs(espObjects) do
+            for _, obj in ipairs(items) do obj:Destroy() end
+        end
+        espObjects = {}
+    end
 end
 
 -- ==================== GUI ====================
@@ -362,8 +325,8 @@ screen.Name = "BrainrotHack"
 screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 210, 0, 420)
-mainFrame.Position = UDim2.new(0, 20, 0.5, -210)
+mainFrame.Size = UDim2.new(0, 220, 0, 490)
+mainFrame.Position = UDim2.new(0, 20, 0.5, -245)
 mainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
 mainFrame.BorderSizePixel = 0
 mainFrame.BackgroundTransparency = 0.05
@@ -372,7 +335,6 @@ mainFrame.Parent = screen
 Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 7)
 Instance.new("UIStroke", mainFrame).Color = Color3.fromRGB(30, 30, 30)
 
--- Title
 local titleBar = Instance.new("Frame")
 titleBar.Size = UDim2.new(1, 0, 0, 30)
 titleBar.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
@@ -384,7 +346,7 @@ local titleText = Instance.new("TextLabel")
 titleText.Size = UDim2.new(0.7, 0, 1, 0)
 titleText.Position = UDim2.new(0, 10, 0, 0)
 titleText.BackgroundTransparency = 1
-titleText.Text = "Brainrot Hack"
+titleText.Text = "Brainrot Hack v10"
 titleText.TextColor3 = Color3.fromRGB(255, 255, 255)
 titleText.Font = Enum.Font.GothamBold
 titleText.TextSize = 13
@@ -403,14 +365,12 @@ closeBtn.TextSize = 12
 closeBtn.Parent = titleBar
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 4)
 
--- Content
 local content = Instance.new("Frame")
 content.Size = UDim2.new(1, -16, 1, -38)
 content.Position = UDim2.new(0, 8, 0, 34)
 content.BackgroundTransparency = 1
 content.Parent = mainFrame
 
--- Toggle Creator
 local function createToggle(name, yPos, callback)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(1, 0, 0, 30)
@@ -435,21 +395,151 @@ local function createToggle(name, yPos, callback)
     return btn
 end
 
--- Toggles
 createToggle("Invisible", 0, setInvisible)
-createToggle("NoClip", 34, setNoClip)
+createToggle("NoClip (Walls)", 34, setNoClip)
 createToggle("AntiHit", 68, setAntiHit)
-createToggle("Void Touch", 102, setVoidTouch)
-createToggle("AutoSteal", 136, setAutoSteal)
-createToggle("Fly", 170, setFly)
-createToggle("Lock Base", 204, setBaseLock)
+createToggle("ESP", 102, setESP)
+createToggle("Speed Hack", 136, setSpeedHack)
+createToggle("Lock Base", 170, setBaseLock)
 
--- Speed control
+-- Void Touch toggle
+local voidTouchToggle = Instance.new("TextButton")
+voidTouchToggle.Size = UDim2.new(1, 0, 0, 30)
+voidTouchToggle.Position = UDim2.new(0, 0, 0, 204)
+voidTouchToggle.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+voidTouchToggle.BorderSizePixel = 0
+voidTouchToggle.Text = "Void Touch: OFF"
+voidTouchToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+voidTouchToggle.Font = Enum.Font.GothamSemibold
+voidTouchToggle.TextSize = 12
+voidTouchToggle.AutoButtonColor = false
+voidTouchToggle.Parent = content
+Instance.new("UICorner", voidTouchToggle).CornerRadius = UDim.new(0, 5)
+
+local vtEnabled = false
+voidTouchToggle.MouseButton1Click:Connect(function()
+    vtEnabled = not vtEnabled
+    voidTouchToggle.Text = "Void Touch: " .. (vtEnabled and "ON" or "OFF")
+    voidTouchToggle.BackgroundColor3 = vtEnabled and Color3.fromRGB(0, 140, 70) or Color3.fromRGB(40, 40, 40)
+    setVoidTouch(vtEnabled)
+end)
+
+-- Void Target
+local targetLabel = Instance.new("TextLabel")
+targetLabel.Size = UDim2.new(1, 0, 0, 16)
+targetLabel.Position = UDim2.new(0, 0, 0, 238)
+targetLabel.BackgroundTransparency = 1
+targetLabel.Text = "Void Target: ALL"
+targetLabel.TextColor3 = Color3.fromRGB(255, 200, 0)
+targetLabel.Font = Enum.Font.GothamSemibold
+targetLabel.TextSize = 10
+targetLabel.TextXAlignment = Enum.TextXAlignment.Left
+targetLabel.Parent = content
+
+-- Dropdown
+local dropdownBtn = Instance.new("TextButton")
+dropdownBtn.Size = UDim2.new(1, 0, 0, 26)
+dropdownBtn.Position = UDim2.new(0, 0, 0, 256)
+dropdownBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+dropdownBtn.BorderSizePixel = 0
+dropdownBtn.Text = "Select Target [v]"
+dropdownBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+dropdownBtn.Font = Enum.Font.GothamSemibold
+dropdownBtn.TextSize = 11
+dropdownBtn.AutoButtonColor = false
+dropdownBtn.Parent = content
+Instance.new("UICorner", dropdownBtn).CornerRadius = UDim.new(0, 4)
+
+local dropdownList = Instance.new("Frame")
+dropdownList.Size = UDim2.new(1, 0, 0, 0)
+dropdownList.Position = UDim2.new(0, 0, 0, 284)
+dropdownList.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+dropdownList.BorderSizePixel = 0
+dropdownList.Visible = false
+dropdownList.ClipsDescendants = true
+dropdownList.Parent = content
+Instance.new("UICorner", dropdownList).CornerRadius = UDim.new(0, 4)
+
+local dropdownScrolling = Instance.new("ScrollingFrame")
+dropdownScrolling.Size = UDim2.new(1, -4, 1, -4)
+dropdownScrolling.Position = UDim2.new(0, 2, 0, 2)
+dropdownScrolling.BackgroundTransparency = 1
+dropdownScrolling.CanvasSize = UDim2.new(0, 0, 0, 0)
+dropdownScrolling.ScrollBarThickness = 3
+dropdownScrolling.Parent = dropdownList
+
+local function updateDropdown()
+    for _, btn in ipairs(dropdownButtons) do btn:Destroy() end
+    dropdownButtons = {}
+    
+    local y = 0
+    
+    local allBtn = Instance.new("TextButton")
+    allBtn.Size = UDim2.new(1, 0, 0, 24)
+    allBtn.Position = UDim2.new(0, 0, 0, y)
+    allBtn.BackgroundColor3 = voidTarget == nil and Color3.fromRGB(0, 140, 70) or Color3.fromRGB(50, 50, 50)
+    allBtn.BorderSizePixel = 0
+    allBtn.Text = "ALL"
+    allBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    allBtn.Font = Enum.Font.GothamSemibold
+    allBtn.TextSize = 11
+    allBtn.AutoButtonColor = false
+    allBtn.Parent = dropdownScrolling
+    
+    allBtn.MouseButton1Click:Connect(function()
+        voidTarget = nil
+        targetLabel.Text = "Void Target: ALL"
+        dropdownList.Visible = false
+        dropdownOpen = false
+        updateDropdown()
+    end)
+    table.insert(dropdownButtons, allBtn)
+    y += 26
+    
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local btn = Instance.new("TextButton")
+            btn.Size = UDim2.new(1, 0, 0, 24)
+            btn.Position = UDim2.new(0, 0, 0, y)
+            btn.BackgroundColor3 = voidTarget == player and Color3.fromRGB(0, 140, 70) or Color3.fromRGB(50, 50, 50)
+            btn.BorderSizePixel = 0
+            btn.Text = player.Name
+            btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            btn.Font = Enum.Font.GothamSemibold
+            btn.TextSize = 11
+            btn.AutoButtonColor = false
+            btn.Parent = dropdownScrolling
+            
+            btn.MouseButton1Click:Connect(function()
+                voidTarget = player
+                targetLabel.Text = "Void Target: " .. player.Name
+                dropdownList.Visible = false
+                dropdownOpen = false
+                updateDropdown()
+            end)
+            table.insert(dropdownButtons, btn)
+            y += 26
+        end
+    end
+    
+    dropdownScrolling.CanvasSize = UDim2.new(0, 0, 0, y)
+end
+
+dropdownBtn.MouseButton1Click:Connect(function()
+    dropdownOpen = not dropdownOpen
+    dropdownList.Visible = dropdownOpen
+    if dropdownOpen then
+        updateDropdown()
+        dropdownList.Size = UDim2.new(1, 0, 0, math.min(#dropdownButtons * 26, 150))
+    end
+end)
+
+-- Speed
 local speedLabel = Instance.new("TextLabel")
 speedLabel.Size = UDim2.new(1, 0, 0, 16)
-speedLabel.Position = UDim2.new(0, 0, 0, 242)
+speedLabel.Position = UDim2.new(0, 0, 0, 288)
 speedLabel.BackgroundTransparency = 1
-speedLabel.Text = "Fly Speed: 50"
+speedLabel.Text = "Speed: x" .. speedMultiplier
 speedLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
 speedLabel.Font = Enum.Font.GothamSemibold
 speedLabel.TextSize = 11
@@ -458,7 +548,7 @@ speedLabel.Parent = content
 
 local minusBtn = Instance.new("TextButton")
 minusBtn.Size = UDim2.new(0, 28, 0, 20)
-minusBtn.Position = UDim2.new(0, 0, 0, 260)
+minusBtn.Position = UDim2.new(0, 0, 0, 306)
 minusBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
 minusBtn.BorderSizePixel = 0
 minusBtn.Text = "-"
@@ -471,7 +561,7 @@ Instance.new("UICorner", minusBtn).CornerRadius = UDim.new(0, 4)
 
 local plusBtn = Instance.new("TextButton")
 plusBtn.Size = UDim2.new(0, 28, 0, 20)
-plusBtn.Position = UDim2.new(1, -28, 0, 260)
+plusBtn.Position = UDim2.new(1, -28, 0, 306)
 plusBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
 plusBtn.BorderSizePixel = 0
 plusBtn.Text = "+"
@@ -483,19 +573,21 @@ plusBtn.Parent = content
 Instance.new("UICorner", plusBtn).CornerRadius = UDim.new(0, 4)
 
 minusBtn.MouseButton1Click:Connect(function()
-    flySpeed = math.max(flySpeed - 10, 10)
-    speedLabel.Text = "Fly Speed: " .. flySpeed
+    speedMultiplier = math.max(speedMultiplier - 0.5, 1)
+    speedLabel.Text = "Speed: x" .. speedMultiplier
+    updateSpeed(speedMultiplier)
 end)
 
 plusBtn.MouseButton1Click:Connect(function()
-    flySpeed = math.min(flySpeed + 10, 200)
-    speedLabel.Text = "Fly Speed: " .. flySpeed
+    speedMultiplier = math.min(speedMultiplier + 0.5, 10)
+    speedLabel.Text = "Speed: x" .. speedMultiplier
+    updateSpeed(speedMultiplier)
 end)
 
 -- Teleport
 local teleportBtn = Instance.new("TextButton")
 teleportBtn.Size = UDim2.new(1, 0, 0, 28)
-teleportBtn.Position = UDim2.new(0, 0, 0, 288)
+teleportBtn.Position = UDim2.new(0, 0, 0, 334)
 teleportBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
 teleportBtn.BorderSizePixel = 0
 teleportBtn.Text = "Teleport to Base"
@@ -506,11 +598,9 @@ teleportBtn.AutoButtonColor = false
 teleportBtn.Parent = content
 Instance.new("UICorner", teleportBtn).CornerRadius = UDim.new(0, 5)
 
-teleportBtn.MouseButton1Click:Connect(function()
-    teleportToBase()
-end)
+teleportBtn.MouseButton1Click:Connect(teleportToBase)
 
--- ==================== ПЕРЕТАСКИВАНИЕ ====================
+-- Перетаскивание
 local dragging = false
 local dragStart, frameStart
 
@@ -535,7 +625,7 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
--- Restore button
+-- Restore
 local restoreBtn = Instance.new("TextButton")
 restoreBtn.Size = UDim2.new(0, 45, 0, 26)
 restoreBtn.Position = UDim2.new(1, -55, 0, 8)
@@ -559,31 +649,6 @@ restoreBtn.MouseButton1Click:Connect(function()
     restoreBtn.Visible = false
 end)
 
--- ==================== КЛАВИШИ ПОЛЕТА ====================
-UserInputService.InputBegan:Connect(function(input, processed)
-    if processed then return end
-    local k = input.KeyCode
-    if k == Enum.KeyCode.W then flyKeys.W = true
-    elseif k == Enum.KeyCode.A then flyKeys.A = true
-    elseif k == Enum.KeyCode.S then flyKeys.S = true
-    elseif k == Enum.KeyCode.D then flyKeys.D = true
-    elseif k == Enum.KeyCode.Space then flyKeys.Space = true
-    elseif k == Enum.KeyCode.LeftControl then flyKeys.LeftControl = true
-    end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
-    local k = input.KeyCode
-    if k == Enum.KeyCode.W then flyKeys.W = false
-    elseif k == Enum.KeyCode.A then flyKeys.A = false
-    elseif k == Enum.KeyCode.S then flyKeys.S = false
-    elseif k == Enum.KeyCode.D then flyKeys.D = false
-    elseif k == Enum.KeyCode.Space then flyKeys.Space = false
-    elseif k == Enum.KeyCode.LeftControl then flyKeys.LeftControl = false
-    end
-end)
-
--- ==================== РЕСПАВН ====================
 LocalPlayer.CharacterAdded:Connect(function(char)
     Character = char
     Humanoid = char:WaitForChild("Humanoid")
@@ -594,19 +659,7 @@ LocalPlayer.CharacterAdded:Connect(function(char)
     if invisible then setInvisible(true) end
     if noclip then setNoClip(false); setNoClip(true) end
     if antihit then setAntiHit(false); setAntiHit(true) end
-    if voidtouch then setVoidTouch(false); setVoidTouch(true) end
-    if autosteal then spawn(autoStealLoop) end
-    if flying then stopFly(); flying = false; setFly(true) end
+    if vtEnabled then setVoidTouch(false); setVoidTouch(true) end
+    if speedhack then setSpeedHack(false); setSpeedHack(true) end
     if baseLocked then setBaseLock(false); setBaseLock(true) end
-end)
-
--- ==================== ОЧИСТКА ПРИ ВЫХОДЕ ====================
-LocalPlayer.OnTeleport:Connect(function()
-    setFly(false)
-    setNoClip(false)
-    setAntiHit(false)
-    setVoidTouch(false)
-    setInvisible(false)
-    setAutoSteal(false)
-    setBaseLock(false)
 end)
