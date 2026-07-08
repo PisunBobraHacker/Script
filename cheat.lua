@@ -1,5 +1,5 @@
--- // HuyilanHub v4 for Xeno
--- // Фикс аимбота, сайлент аим + волшот, убран дерганый прицел, сильные анимации
+-- // HuyilanHub v5 for Xeno
+-- // Исправлено: AntiAim не сбивает прицел, GodMode рабочий, Wallshot + SilentAim фикс, аимбот плавный
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -47,26 +47,37 @@ local fovCircle = nil
 local crosshairGui = nil
 local aimbotDropdownOpen = false
 local rgbConn = nil
+local lastAimTarget = nil
 
--- ==================== GODMODE ====================
+-- ==================== GODMODE (фикс) ====================
 local function setGodmode(state)
     godmode = state
     if state then
         godmodeConn = RunService.Heartbeat:Connect(function()
-            if Humanoid then Humanoid.Health = Humanoid.MaxHealth end
-            if Character then
-                for _, part in ipairs(Character:GetDescendants()) do
-                    if part:IsA("BasePart") then part.CanTouch = false end
+            pcall(function()
+                if Humanoid and Humanoid.Health > 0 then
+                    Humanoid.Health = Humanoid.MaxHealth
                 end
-            end
+                if Character then
+                    for _, part in ipairs(Character:GetDescendants()) do
+                        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                            part.CanTouch = false
+                        end
+                    end
+                end
+            end)
         end)
     else
         if godmodeConn then godmodeConn:Disconnect(); godmodeConn = nil end
-        if Character then
-            for _, part in ipairs(Character:GetDescendants()) do
-                if part:IsA("BasePart") then part.CanTouch = true end
+        pcall(function()
+            if Character then
+                for _, part in ipairs(Character:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanTouch = true
+                    end
+                end
             end
-        end
+        end)
     end
 end
 
@@ -75,125 +86,154 @@ local function setNoClip(state)
     noclip = state
     if state then
         noclipConn = RunService.Stepped:Connect(function()
-            if not Character or not HumanoidRootPart then return end
-            for _, part in ipairs(Character:GetDescendants()) do
-                if part:IsA("BasePart") then part.CanCollide = false end
-            end
-            if HumanoidRootPart.Position.Y < -100 then
-                HumanoidRootPart.CFrame = CFrame.new(0, 50, 0)
-            end
-            if HumanoidRootPart.Position.Magnitude > 5000 then
-                HumanoidRootPart.CFrame = CFrame.new(0, 50, 0)
-            end
+            pcall(function()
+                if not Character or not HumanoidRootPart then return end
+                for _, part in ipairs(Character:GetDescendants()) do
+                    if part:IsA("BasePart") then part.CanCollide = false end
+                end
+                if HumanoidRootPart.Position.Y < -100 then
+                    HumanoidRootPart.CFrame = CFrame.new(0, 50, 0)
+                end
+                if HumanoidRootPart.Position.Magnitude > 5000 then
+                    HumanoidRootPart.CFrame = CFrame.new(0, 50, 0)
+                end
+            end)
         end)
     else
         if noclipConn then noclipConn:Disconnect(); noclipConn = nil end
-        if Character then
-            for _, part in ipairs(Character:GetDescendants()) do
-                if part:IsA("BasePart") then part.CanCollide = true end
+        pcall(function()
+            if Character then
+                for _, part in ipairs(Character:GetDescendants()) do
+                    if part:IsA("BasePart") then part.CanCollide = true end
+                end
             end
-        end
+        end)
     end
 end
 
--- ==================== ANTI AIM (усиленный) ====================
+-- ==================== ANTI AIM (не сбивает прицел) ====================
 local function setAntiAim(state)
     antiAim = state
     if state then
         antiAimConn = RunService.RenderStepped:Connect(function()
-            if Character and HumanoidRootPart then
-                -- Быстрое вращение по Y
-                HumanoidRootPart.CFrame = HumanoidRootPart.CFrame * CFrame.Angles(0, math.rad(tick() * 800 % 360), 0)
-                -- Сильные наклоны по X и Z
-                HumanoidRootPart.CFrame = HumanoidRootPart.CFrame * CFrame.Angles(
-                    math.rad(math.sin(tick() * 25) * 60),
-                    0,
-                    math.rad(math.cos(tick() * 20) * 60)
-                )
-                -- Тряска позиции
-                HumanoidRootPart.CFrame = HumanoidRootPart.CFrame + Vector3.new(
-                    math.sin(tick() * 30) * 1.5,
-                    math.cos(tick() * 25) * 1.5,
-                    math.sin(tick() * 28) * 1.5
-                )
-            end
+            pcall(function()
+                if Character and HumanoidRootPart and Humanoid then
+                    -- Меняем только тело, камера остается на месте
+                    local camCFrame = Camera.CFrame
+                    
+                    -- Вращаем RootPart независимо от камеры
+                    Humanoid.AutoRotate = false
+                    HumanoidRootPart.CFrame = HumanoidRootPart.CFrame * CFrame.Angles(0, math.rad(tick() * 600 % 360), 0)
+                    
+                    -- Наклоняем тело
+                    local rootCF = HumanoidRootPart.CFrame
+                    HumanoidRootPart.CFrame = rootCF * CFrame.Angles(
+                        math.rad(math.sin(tick() * 20) * 45),
+                        0,
+                        math.rad(math.cos(tick() * 18) * 45)
+                    )
+                    
+                    -- Камера остается где была (не привязана к телу)
+                    Camera.CFrame = camCFrame
+                end
+            end)
         end)
     else
         if antiAimConn then antiAimConn:Disconnect(); antiAimConn = nil end
+        pcall(function()
+            if Humanoid then
+                Humanoid.AutoRotate = true
+            end
+        end)
     end
 end
 
--- ==================== WALLSHOT + SILENT AIM ====================
+-- ==================== WALLSHOT (фикс) ====================
 local function setWallshot(state)
     wallshot = state
     if state then
         wallshotConn = RunService.Heartbeat:Connect(function()
-            if Character then
-                -- Отключаем коллизию для игнорирования стен
-                for _, part in ipairs(Character:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        part.CanCollide = false
+            pcall(function()
+                -- Делаем стены проходимыми для рейкастов оружия
+                if Character then
+                    for _, part in ipairs(Workspace:GetDescendants()) do
+                        if part:IsA("BasePart") and part.CanCollide and part.Transparency < 0.5 then
+                            -- Не трогаем части персонажей
+                            local isCharacter = false
+                            for _, plr in ipairs(Players:GetPlayers()) do
+                                if plr.Character and part:IsDescendantOf(plr.Character) then
+                                    isCharacter = true
+                                    break
+                                end
+                            end
+                            if not isCharacter then
+                                part.CanCollide = false
+                            end
+                        end
                     end
                 end
-            end
+            end)
         end)
     else
         if wallshotConn then wallshotConn:Disconnect(); wallshotConn = nil end
-        if Character then
-            for _, part in ipairs(Character:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = true
-                end
-            end
-        end
     end
 end
 
--- ==================== SILENT AIM (работает с wallshot) ====================
+-- ==================== SILENT AIM (фикс, работает с wallshot) ====================
 local function setSilentAim(state)
     silentAim = state
     if state then
         silentAimConn = RunService.RenderStepped:Connect(function()
-            if not Character then return end
-            local tool = Character:FindFirstChildOfClass("Tool")
-            if not tool then return end
-            
-            -- Ищем ближайшего врага для сайлент аима
-            local closest, closestDist = nil, aimbotFOV
-            for _, player in ipairs(Players:GetPlayers()) do
-                if player ~= LocalPlayer and player.Character then
-                    local targetPart = player.Character:FindFirstChild(aimbotPart)
-                    local hum = player.Character:FindFirstChild("Humanoid")
-                    if targetPart and hum and hum.Health > 0 then
-                        local sp, onScreen = Camera:WorldToScreenPoint(targetPart.Position)
-                        local dist = onScreen and (Vector2.new(sp.X, sp.Y) - Vector2.new(Mouse.X, Mouse.Y)).Magnitude or aimbotFOV + 1
-                        if dist < closestDist then
-                            closestDist = dist
-                            closest = targetPart
+            pcall(function()
+                if not Character then return end
+                
+                -- Ищем ближайшего врага
+                local closest, closestDist = nil, aimbotFOV
+                for _, player in ipairs(Players:GetPlayers()) do
+                    if player ~= LocalPlayer and player.Character then
+                        local targetPart = player.Character:FindFirstChild(aimbotPart)
+                        local hum = player.Character:FindFirstChild("Humanoid")
+                        if targetPart and hum and hum.Health > 0 then
+                            local sp, onScreen = Camera:WorldToScreenPoint(targetPart.Position)
+                            local dist = onScreen and (Vector2.new(sp.X, sp.Y) - Vector2.new(Mouse.X, Mouse.Y)).Magnitude or 99999
+                            if dist < closestDist then
+                                closestDist = dist
+                                closest = targetPart
+                            end
                         end
                     end
                 end
-            end
-            
-            if closest then
-                -- Меняем позицию Mouse.Hit на позицию цели
-                local firePos = closest.Position
-                -- Перемещаем оружие чтобы стрелять в цель
-                pcall(function()
-                    local handle = tool:FindFirstChild("Handle") or tool.PrimaryPart
-                    if handle then
-                        -- Направляем ствол на цель
-                        local dir = (firePos - handle.Position).Unit
-                        -- Создаем луч до цели игнорируя стены (для wallshot)
-                        local rayParams = RaycastParams.new()
-                        rayParams.FilterType = Enum.RaycastFilterType.Exclude
-                        rayParams.FilterDescendantsInstances = {Character}
-                        
-                        -- Телепортируем пулю к цели
-                        Mouse.Hit = CFrame.new(firePos)
+                
+                if closest then
+                    -- Телепортируем позицию выстрела к цели
+                    local tool = Character:FindFirstChildOfClass("Tool")
+                    if tool then
+                        local handle = tool:FindFirstChild("Handle") or tool.PrimaryPart
+                        if handle then
+                            -- Направляем выстрел на цель игнорируя стены
+                            local firePos = closest.Position
+                            local dir = (firePos - handle.Position).Unit
+                            
+                            -- Создаем рейкаст для регистрации попадания
+                            local rayParams = RaycastParams.new()
+                            rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                            rayParams.FilterDescendantsInstances = {Character}
+                            rayParams.IgnoreWater = true
+                            
+                            -- Проверяем что цель видна (wallshot игнорирует стены)
+                            local rayResult = Workspace:Raycast(handle.Position, dir * 1000, rayParams)
+                            if rayResult then
+                                local hitChar = rayResult.Instance.Parent
+                                if hitChar and hitChar:FindFirstChild("Humanoid") then
+                                    -- Попадание зарегистрировано
+                                    firetouchinterest(handle, rayResult.Instance, 0)
+                                    firetouchinterest(handle, rayResult.Instance, 1)
+                                end
+                            end
+                        end
                     end
-                end)
-            end
+                end
+            end)
         end)
     else
         if silentAimConn then silentAimConn:Disconnect(); silentAimConn = nil end
@@ -205,25 +245,24 @@ local function setTriggerBot(state)
     triggerBot = state
     if state then
         triggerBotConn = RunService.RenderStepped:Connect(function()
-            local target = Mouse.Target
-            if target and target.Parent then
-                local hum = target.Parent:FindFirstChild("Humanoid")
-                if hum and hum.Health > 0 and target.Parent ~= Character then
-                    mouse1press()
-                    wait(triggerBotDelay)
-                    mouse1release()
+            pcall(function()
+                local target = Mouse.Target
+                if target and target.Parent then
+                    local hum = target.Parent:FindFirstChild("Humanoid")
+                    if hum and hum.Health > 0 and target.Parent ~= Character then
+                        mouse1press()
+                        wait(triggerBotDelay)
+                        mouse1release()
+                    end
                 end
-            end
+            end)
         end)
     else
         if triggerBotConn then triggerBotConn:Disconnect(); triggerBotConn = nil end
     end
 end
 
--- ==================== AIMBOT (усиленный, без дерганий) ====================
-local lastAimTarget = nil
-local aimSmoothness = 0.15
-
+-- ==================== AIMBOT (плавный, без рывков) ====================
 local function findClosestEnemy()
     local closest, closestDist = nil, aimbotFOV
     for _, player in ipairs(Players:GetPlayers()) do
@@ -251,21 +290,22 @@ local function setAimbot(state)
         lastAimTarget = nil
         spawn(function()
             while aimbot do
-                local target = findClosestEnemy()
-                if target then
-                    -- Плавное наведение без рывков
-                    local targetPos = target.Position
-                    local camPos = Camera.CFrame.Position
-                    
-                    -- Если цель та же, делаем более плавно
-                    local smooth = lastAimTarget == target and 0.08 or 0.2
-                    lastAimTarget = target
-                    
-                    local lookAt = CFrame.new(camPos, targetPos)
-                    Camera.CFrame = Camera.CFrame:Lerp(lookAt, smooth)
-                else
-                    lastAimTarget = nil
-                end
+                pcall(function()
+                    local target = findClosestEnemy()
+                    if target then
+                        local targetPos = target.Position
+                        local camPos = Camera.CFrame.Position
+                        
+                        -- Плавность зависит от того та же цель или новая
+                        local smooth = (lastAimTarget == target) and 0.06 or 0.15
+                        lastAimTarget = target
+                        
+                        local lookAt = CFrame.new(camPos, targetPos)
+                        Camera.CFrame = Camera.CFrame:Lerp(lookAt, smooth)
+                    else
+                        lastAimTarget = nil
+                    end
+                end)
                 RunService.RenderStepped:Wait()
             end
         end)
@@ -399,24 +439,23 @@ local function setESP(state)
     end
 end
 
--- ==================== NO RECOIL ====================
-local function setNoRecoil(state)
-    noRecoil = state
-end
+-- ==================== NO RECOIL / RAPID FIRE ====================
+local function setNoRecoil(state) noRecoil = state end
 
--- ==================== RAPID FIRE ====================
 local function setRapidFire(state)
     rapidFire = state
     if state then
         spawn(function()
             while rapidFire do
-                if Character and Character:FindFirstChildOfClass("Tool") then
-                    if Mouse.Target and Mouse.Target.Parent and Mouse.Target.Parent:FindFirstChild("Humanoid") then
-                        mouse1press()
-                        wait(rapidFireDelay)
-                        mouse1release()
+                pcall(function()
+                    if Character and Character:FindFirstChildOfClass("Tool") then
+                        if Mouse.Target and Mouse.Target.Parent and Mouse.Target.Parent:FindFirstChild("Humanoid") then
+                            mouse1press()
+                            wait(rapidFireDelay)
+                            mouse1release()
+                        end
                     end
-                end
+                end)
                 wait(0.01)
             end
         end)
@@ -582,7 +621,6 @@ end
 
 startRGB()
 
--- Функция создания тоггла
 local function createToggle(name, yPos, callback)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(1, 0, 0, 28)
@@ -613,7 +651,6 @@ local function createToggle(name, yPos, callback)
     return btn
 end
 
--- Тогглы
 createToggle("Aimbot", 0, setAimbot)
 updateFOVCircle()
 
@@ -890,7 +927,7 @@ closeBtn.MouseButton1Click:Connect(function()
     menuVisible = false
 end)
 
--- ==================== RIGHT SHIFT ====================
+-- Right Shift
 UserInputService.InputBegan:Connect(function(input, processed)
     if processed then return end
     if input.KeyCode == Enum.KeyCode.RightShift then
@@ -941,5 +978,4 @@ LocalPlayer.CharacterAdded:Connect(function(char)
     if wallshot then setWallshot(false); setWallshot(true) end
 end)
 
--- Изначально меню скрыто
 screen.Enabled = false
