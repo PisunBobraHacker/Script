@@ -1,5 +1,5 @@
--- // Steal a Brainrot — Final Script v12 for Xeno
--- // Invisible скрывает ник + сфера Void Touch + всё остальное
+-- // Steal a Brainrot — Final Script v13 for Xeno
+-- // Пофикшена сфера (видна полностью) + Void Touch работает по радиусу
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -35,13 +35,12 @@ local voidSphere = nil
 
 -- ==================== ФУНКЦИИ ====================
 
--- INVISIBLE (скрывает ник)
+-- INVISIBLE
 local function setInvisible(state)
     invisible = state
     if not Character then return end
     local t = state and 1 or 0
     
-    -- Скрываем части тела
     for _, part in ipairs(Character:GetDescendants()) do
         if part:IsA("BasePart") then
             part.Transparency = t
@@ -50,29 +49,17 @@ local function setInvisible(state)
         end
     end
     
-    -- Скрываем ник через Humanoid
     if Humanoid then
         Humanoid.DisplayDistanceType = state and Enum.HumanoidDisplayDistanceType.None or Enum.HumanoidDisplayDistanceType.Viewer
     end
     
-    -- Скрываем BillboardGui с ником
     if Character:FindFirstChild("Head") then
-        local head = Character.Head
-        for _, child in ipairs(head:GetChildren()) do
+        for _, child in ipairs(Character.Head:GetChildren()) do
             if child:IsA("BillboardGui") then
                 child.Enabled = not state
             end
         end
     end
-    
-    -- Скрываем стандартный тег игрока
-    pcall(function()
-        if state then
-            LocalPlayer.DevEnableMouseLock = true
-        else
-            LocalPlayer.DevEnableMouseLock = false
-        end
-    end)
 end
 
 -- NOCLIP
@@ -145,7 +132,7 @@ local function setAntiHit(state)
     end
 end
 
--- VOID SPHERE
+-- VOID SPHERE (полностью видна)
 local function updateVoidSphere()
     if voidSphere then
         voidSphere.Size = Vector3.new(voidRadius * 2, voidRadius * 2, voidRadius * 2)
@@ -154,21 +141,44 @@ end
 
 local function createVoidSphere()
     if voidSphere then voidSphere:Destroy() end
+    
     voidSphere = Instance.new("Part")
-    voidSphere.Name = "VoidSphere"
+    voidSphere.Name = "VoidSphere_Local"
     voidSphere.Shape = Enum.PartType.Ball
     voidSphere.Size = Vector3.new(voidRadius * 2, voidRadius * 2, voidRadius * 2)
     voidSphere.Anchored = true
     voidSphere.CanCollide = false
-    voidSphere.Transparency = 0.7
+    voidSphere.Transparency = 0.5
     voidSphere.Color = Color3.fromRGB(255, 0, 0)
-    voidSphere.Material = Enum.Material.ForceField
+    voidSphere.Material = Enum.Material.Neon
+    voidSphere.CastShadow = false
     voidSphere.Parent = Workspace
     
+    -- Внутреннее свечение
+    local innerGlow = Instance.new("Part")
+    innerGlow.Name = "InnerGlow"
+    innerGlow.Shape = Enum.PartType.Ball
+    innerGlow.Size = Vector3.new(voidRadius * 1.8, voidRadius * 1.8, voidRadius * 1.8)
+    innerGlow.Anchored = true
+    innerGlow.CanCollide = false
+    innerGlow.Transparency = 0.8
+    innerGlow.Color = Color3.fromRGB(255, 100, 100)
+    innerGlow.Material = Enum.Material.Neon
+    innerGlow.CastShadow = false
+    innerGlow.Parent = voidSphere
+    
+    -- Сварка чтобы держалось вместе
+    local weld = Instance.new("WeldConstraint")
+    weld.Part0 = voidSphere
+    weld.Part1 = innerGlow
+    weld.Parent = voidSphere
+    
+    -- Контур
     local highlight = Instance.new("Highlight")
     highlight.FillTransparency = 1
     highlight.OutlineColor = Color3.fromRGB(255, 0, 0)
-    highlight.OutlineTransparency = 0
+    highlight.OutlineTransparency = 0.3
+    highlight.Enabled = true
     highlight.Parent = voidSphere
 end
 
@@ -179,11 +189,12 @@ local function removeVoidSphere()
     end
 end
 
--- VOID TOUCH
+-- VOID TOUCH (работает по радиусу сферы)
 local function setVoidTouch(state)
     voidtouch = state
     if state then
         createVoidSphere()
+        
         local function findEnemies()
             local enemies = {}
             if voidTarget then
@@ -226,6 +237,7 @@ local function setVoidTouch(state)
         voidtouchConn = RunService.Heartbeat:Connect(function()
             if not Character or not HumanoidRootPart then return end
             
+            -- Двигаем сферу за игроком
             if voidSphere then
                 voidSphere.Position = HumanoidRootPart.Position
             end
@@ -236,13 +248,17 @@ local function setVoidTouch(state)
             for _, enemy in ipairs(enemies) do
                 if enemy.root and enemy.root.Parent then
                     local dist = (enemy.root.Position - myPos).Magnitude
-                    if dist <= voidRadius then
+                    -- Проверяем что враг внутри радиуса сферы
+                    if dist <= voidRadius and dist > 0.5 then
                         local direction = (enemy.root.Position - myPos).Unit
                         if direction.Magnitude < 0.1 then
                             direction = Vector3.new(math.random(-1, 1), 1, math.random(-1, 1)).Unit
                         end
-                        local launchVelocity = direction * 5000 + Vector3.new(0, 2000, 0)
+                        -- Сила зависит от расстояния: чем ближе, тем сильнее
+                        local power = 1 - (dist / voidRadius)
+                        local launchVelocity = direction * (3000 + power * 5000) + Vector3.new(0, 1000 + power * 3000, 0)
                         enemy.root.Velocity = launchVelocity
+                        enemy.root.AssemblyLinearVelocity = launchVelocity
                         enemy.root.RotVelocity = Vector3.new(math.random(-50, 50), math.random(-50, 50), math.random(-50, 50))
                         pcall(function()
                             if enemy.humanoid then
@@ -414,7 +430,7 @@ local titleText = Instance.new("TextLabel")
 titleText.Size = UDim2.new(0.7, 0, 1, 0)
 titleText.Position = UDim2.new(0, 10, 0, 0)
 titleText.BackgroundTransparency = 1
-titleText.Text = "Brainrot Hack v12"
+titleText.Text = "Brainrot Hack v13"
 titleText.TextColor3 = Color3.fromRGB(255, 255, 255)
 titleText.Font = Enum.Font.GothamBold
 titleText.TextSize = 13
