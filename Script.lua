@@ -1,9 +1,10 @@
--- // Steal a Brainrot — Final Script v8 for Xeno
--- // Void Touch из лайт версии + всё из v7
+-- // Steal a Brainrot — Final Script v9 for Xeno
+-- // Плавный телепорт + всё из v8
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
@@ -46,7 +47,7 @@ local function setInvisible(state)
     end
 end
 
--- NOCLIP (стены)
+-- NOCLIP
 local function setNoClip(state)
     noclip = state
     if state then
@@ -129,7 +130,7 @@ local function setAntiHit(state)
     end
 end
 
--- VOID TOUCH (из лайт версии, имбовый)
+-- VOID TOUCH
 local function setVoidTouch(state)
     voidtouch = state
     if state then
@@ -152,7 +153,6 @@ local function setVoidTouch(state)
                 end
             end
             
-            -- NPC тоже
             for _, obj in ipairs(Workspace:GetDescendants()) do
                 if obj:IsA("Humanoid") and obj.Health > 0 and obj.Parent ~= Character then
                     local root = obj.Parent:FindFirstChild("HumanoidRootPart") or obj.Parent:FindFirstChild("Torso")
@@ -227,7 +227,7 @@ local function updateSpeed(mult)
     end
 end
 
--- TELEPORT
+-- TELEPORT (плавный, без дёрганий)
 local function findBase()
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("SpawnLocation") and obj.Enabled then return obj end
@@ -238,7 +238,11 @@ end
 local function teleportToBase()
     local base = findBase()
     if base and HumanoidRootPart then
-        HumanoidRootPart.CFrame = CFrame.new(base.Position + Vector3.new(0, 3, 0))
+        local targetPos = base.Position + Vector3.new(0, 3, 0)
+        local tweenInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        local goal = {CFrame = CFrame.new(targetPos)}
+        local tween = TweenService:Create(HumanoidRootPart, tweenInfo, goal)
+        tween:Play()
     end
 end
 
@@ -330,7 +334,7 @@ local titleText = Instance.new("TextLabel")
 titleText.Size = UDim2.new(0.7, 0, 1, 0)
 titleText.Position = UDim2.new(0, 10, 0, 0)
 titleText.BackgroundTransparency = 1
-titleText.Text = "Brainrot Hack v8"
+titleText.Text = "Brainrot Hack v9"
 titleText.TextColor3 = Color3.fromRGB(255, 255, 255)
 titleText.Font = Enum.Font.GothamBold
 titleText.TextSize = 13
@@ -408,7 +412,7 @@ voidTouchToggle.MouseButton1Click:Connect(function()
     setVoidTouch(vtEnabled)
 end)
 
--- Void Touch Target Label
+-- Void Target
 local targetLabel = Instance.new("TextLabel")
 targetLabel.Size = UDim2.new(1, 0, 0, 16)
 targetLabel.Position = UDim2.new(0, 0, 0, 238)
@@ -420,7 +424,7 @@ targetLabel.TextSize = 10
 targetLabel.TextXAlignment = Enum.TextXAlignment.Left
 targetLabel.Parent = content
 
--- Dropdown button
+-- Dropdown
 local dropdownBtn = Instance.new("TextButton")
 dropdownBtn.Size = UDim2.new(1, 0, 0, 26)
 dropdownBtn.Position = UDim2.new(0, 0, 0, 256)
@@ -434,7 +438,6 @@ dropdownBtn.AutoButtonColor = false
 dropdownBtn.Parent = content
 Instance.new("UICorner", dropdownBtn).CornerRadius = UDim.new(0, 4)
 
--- Dropdown list
 local dropdownList = Instance.new("Frame")
 dropdownList.Size = UDim2.new(1, 0, 0, 0)
 dropdownList.Position = UDim2.new(0, 0, 0, 284)
@@ -454,9 +457,7 @@ dropdownScrolling.ScrollBarThickness = 3
 dropdownScrolling.Parent = dropdownList
 
 local function updateDropdown()
-    for _, btn in ipairs(dropdownButtons) do
-        btn:Destroy()
-    end
+    for _, btn in ipairs(dropdownButtons) do btn:Destroy() end
     dropdownButtons = {}
     
     local y = 0
@@ -480,7 +481,6 @@ local function updateDropdown()
         dropdownOpen = false
         updateDropdown()
     end)
-    
     table.insert(dropdownButtons, allBtn)
     y += 26
     
@@ -505,7 +505,6 @@ local function updateDropdown()
                 dropdownOpen = false
                 updateDropdown()
             end)
-            
             table.insert(dropdownButtons, btn)
             y += 26
         end
@@ -519,12 +518,11 @@ dropdownBtn.MouseButton1Click:Connect(function()
     dropdownList.Visible = dropdownOpen
     if dropdownOpen then
         updateDropdown()
-        local count = #dropdownButtons
-        dropdownList.Size = UDim2.new(1, 0, 0, math.min(count * 26, 150))
+        dropdownList.Size = UDim2.new(1, 0, 0, math.min(#dropdownButtons * 26, 150))
     end
 end)
 
--- Speed control
+-- Speed
 local speedLabel = Instance.new("TextLabel")
 speedLabel.Size = UDim2.new(1, 0, 0, 16)
 speedLabel.Position = UDim2.new(0, 0, 0, 288)
