@@ -1,5 +1,5 @@
--- // Steal a Brainrot — Final Script v11 for Xeno
--- // Void Touch с видимой сферой + регулировка размера
+-- // Steal a Brainrot — Final Script v12 for Xeno
+-- // Invisible скрывает ник + сфера Void Touch + всё остальное
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -35,11 +35,13 @@ local voidSphere = nil
 
 -- ==================== ФУНКЦИИ ====================
 
--- INVISIBLE
+-- INVISIBLE (скрывает ник)
 local function setInvisible(state)
     invisible = state
     if not Character then return end
     local t = state and 1 or 0
+    
+    -- Скрываем части тела
     for _, part in ipairs(Character:GetDescendants()) do
         if part:IsA("BasePart") then
             part.Transparency = t
@@ -47,6 +49,30 @@ local function setInvisible(state)
             part.Transparency = t
         end
     end
+    
+    -- Скрываем ник через Humanoid
+    if Humanoid then
+        Humanoid.DisplayDistanceType = state and Enum.HumanoidDisplayDistanceType.None or Enum.HumanoidDisplayDistanceType.Viewer
+    end
+    
+    -- Скрываем BillboardGui с ником
+    if Character:FindFirstChild("Head") then
+        local head = Character.Head
+        for _, child in ipairs(head:GetChildren()) do
+            if child:IsA("BillboardGui") then
+                child.Enabled = not state
+            end
+        end
+    end
+    
+    -- Скрываем стандартный тег игрока
+    pcall(function()
+        if state then
+            LocalPlayer.DevEnableMouseLock = true
+        else
+            LocalPlayer.DevEnableMouseLock = false
+        end
+    end)
 end
 
 -- NOCLIP
@@ -119,7 +145,7 @@ local function setAntiHit(state)
     end
 end
 
--- VOID SPHERE (видимая только мне)
+-- VOID SPHERE
 local function updateVoidSphere()
     if voidSphere then
         voidSphere.Size = Vector3.new(voidRadius * 2, voidRadius * 2, voidRadius * 2)
@@ -139,7 +165,6 @@ local function createVoidSphere()
     voidSphere.Material = Enum.Material.ForceField
     voidSphere.Parent = Workspace
     
-    -- Подсветка по краям
     local highlight = Instance.new("Highlight")
     highlight.FillTransparency = 1
     highlight.OutlineColor = Color3.fromRGB(255, 0, 0)
@@ -201,7 +226,6 @@ local function setVoidTouch(state)
         voidtouchConn = RunService.Heartbeat:Connect(function()
             if not Character or not HumanoidRootPart then return end
             
-            -- Обновляем позицию сферы
             if voidSphere then
                 voidSphere.Position = HumanoidRootPart.Position
             end
@@ -390,7 +414,7 @@ local titleText = Instance.new("TextLabel")
 titleText.Size = UDim2.new(0.7, 0, 1, 0)
 titleText.Position = UDim2.new(0, 10, 0, 0)
 titleText.BackgroundTransparency = 1
-titleText.Text = "Brainrot Hack v11"
+titleText.Text = "Brainrot Hack v12"
 titleText.TextColor3 = Color3.fromRGB(255, 255, 255)
 titleText.Font = Enum.Font.GothamBold
 titleText.TextSize = 13
@@ -578,7 +602,7 @@ dropdownBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- Void Radius control
+-- Void Radius
 local radiusLabel = Instance.new("TextLabel")
 radiusLabel.Size = UDim2.new(1, 0, 0, 16)
 radiusLabel.Position = UDim2.new(0, 0, 0, 288)
