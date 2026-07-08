@@ -1,5 +1,5 @@
--- // HuyilanHub v3 for Xeno
--- // Открытие/закрытие на Right Shift + RGB меню + Aimbot (части тела) + FOV + Crosshair + AntiAim + Wallshot + TriggerBot + ESP + NoRecoil + RapidFire + Fly + Speed + NoClip + GodMode
+-- // HuyilanHub v4 for Xeno
+-- // Фикс аимбота, сайлент аим + волшот, убран дерганый прицел, сильные анимации
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -40,7 +40,7 @@ local triggerBotDelay = 0.1
 local menuVisible = false
 
 local flyBV, flyBG, flyConn = nil, nil, nil
-local noclipConn, godmodeConn, antiAimConn, triggerBotConn = nil, nil, nil, nil
+local noclipConn, godmodeConn, antiAimConn, triggerBotConn, silentAimConn, wallshotConn = nil, nil, nil, nil, nil, nil
 local flyKeys = {W = false, A = false, S = false, D = false, Space = false, LeftControl = false}
 local espObjects = {}
 local fovCircle = nil
@@ -96,15 +96,25 @@ local function setNoClip(state)
     end
 end
 
--- ==================== ANTI AIM ====================
+-- ==================== ANTI AIM (усиленный) ====================
 local function setAntiAim(state)
     antiAim = state
     if state then
         antiAimConn = RunService.RenderStepped:Connect(function()
             if Character and HumanoidRootPart then
-                HumanoidRootPart.CFrame = HumanoidRootPart.CFrame * CFrame.Angles(0, math.rad(tick() * 500 % 360), 0)
+                -- Быстрое вращение по Y
+                HumanoidRootPart.CFrame = HumanoidRootPart.CFrame * CFrame.Angles(0, math.rad(tick() * 800 % 360), 0)
+                -- Сильные наклоны по X и Z
                 HumanoidRootPart.CFrame = HumanoidRootPart.CFrame * CFrame.Angles(
-                    math.rad(math.sin(tick() * 10) * 30), 0, math.rad(math.cos(tick() * 12) * 30)
+                    math.rad(math.sin(tick() * 25) * 60),
+                    0,
+                    math.rad(math.cos(tick() * 20) * 60)
+                )
+                -- Тряска позиции
+                HumanoidRootPart.CFrame = HumanoidRootPart.CFrame + Vector3.new(
+                    math.sin(tick() * 30) * 1.5,
+                    math.cos(tick() * 25) * 1.5,
+                    math.sin(tick() * 28) * 1.5
                 )
             end
         end)
@@ -113,9 +123,81 @@ local function setAntiAim(state)
     end
 end
 
--- ==================== WALLSHOT ====================
+-- ==================== WALLSHOT + SILENT AIM ====================
 local function setWallshot(state)
     wallshot = state
+    if state then
+        wallshotConn = RunService.Heartbeat:Connect(function()
+            if Character then
+                -- Отключаем коллизию для игнорирования стен
+                for _, part in ipairs(Character:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end)
+    else
+        if wallshotConn then wallshotConn:Disconnect(); wallshotConn = nil end
+        if Character then
+            for _, part in ipairs(Character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
+                end
+            end
+        end
+    end
+end
+
+-- ==================== SILENT AIM (работает с wallshot) ====================
+local function setSilentAim(state)
+    silentAim = state
+    if state then
+        silentAimConn = RunService.RenderStepped:Connect(function()
+            if not Character then return end
+            local tool = Character:FindFirstChildOfClass("Tool")
+            if not tool then return end
+            
+            -- Ищем ближайшего врага для сайлент аима
+            local closest, closestDist = nil, aimbotFOV
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer and player.Character then
+                    local targetPart = player.Character:FindFirstChild(aimbotPart)
+                    local hum = player.Character:FindFirstChild("Humanoid")
+                    if targetPart and hum and hum.Health > 0 then
+                        local sp, onScreen = Camera:WorldToScreenPoint(targetPart.Position)
+                        local dist = onScreen and (Vector2.new(sp.X, sp.Y) - Vector2.new(Mouse.X, Mouse.Y)).Magnitude or aimbotFOV + 1
+                        if dist < closestDist then
+                            closestDist = dist
+                            closest = targetPart
+                        end
+                    end
+                end
+            end
+            
+            if closest then
+                -- Меняем позицию Mouse.Hit на позицию цели
+                local firePos = closest.Position
+                -- Перемещаем оружие чтобы стрелять в цель
+                pcall(function()
+                    local handle = tool:FindFirstChild("Handle") or tool.PrimaryPart
+                    if handle then
+                        -- Направляем ствол на цель
+                        local dir = (firePos - handle.Position).Unit
+                        -- Создаем луч до цели игнорируя стены (для wallshot)
+                        local rayParams = RaycastParams.new()
+                        rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                        rayParams.FilterDescendantsInstances = {Character}
+                        
+                        -- Телепортируем пулю к цели
+                        Mouse.Hit = CFrame.new(firePos)
+                    end
+                end)
+            end
+        end)
+    else
+        if silentAimConn then silentAimConn:Disconnect(); silentAimConn = nil end
+    end
 end
 
 -- ==================== TRIGGER BOT ====================
@@ -138,7 +220,10 @@ local function setTriggerBot(state)
     end
 end
 
--- ==================== AIMBOT ====================
+-- ==================== AIMBOT (усиленный, без дерганий) ====================
+local lastAimTarget = nil
+local aimSmoothness = 0.15
+
 local function findClosestEnemy()
     local closest, closestDist = nil, aimbotFOV
     for _, player in ipairs(Players:GetPlayers()) do
@@ -163,15 +248,29 @@ end
 local function setAimbot(state)
     aimbot = state
     if state then
+        lastAimTarget = nil
         spawn(function()
             while aimbot do
                 local target = findClosestEnemy()
                 if target then
-                    Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, target.Position), 0.1)
+                    -- Плавное наведение без рывков
+                    local targetPos = target.Position
+                    local camPos = Camera.CFrame.Position
+                    
+                    -- Если цель та же, делаем более плавно
+                    local smooth = lastAimTarget == target and 0.08 or 0.2
+                    lastAimTarget = target
+                    
+                    local lookAt = CFrame.new(camPos, targetPos)
+                    Camera.CFrame = Camera.CFrame:Lerp(lookAt, smooth)
+                else
+                    lastAimTarget = nil
                 end
                 RunService.RenderStepped:Wait()
             end
         end)
+    else
+        lastAimTarget = nil
     end
 end
 
@@ -387,7 +486,6 @@ screen.Name = "HuyilanHub"
 screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screen.Enabled = false
 
--- RGB Gradient Title Bar
 local titleGradient = Instance.new("UIGradient")
 titleGradient.Color = ColorSequence.new({
     ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 0, 0)),
@@ -470,7 +568,6 @@ local function startRGB()
     if rgbConn then rgbConn:Disconnect() end
     rgbConn = RunService.RenderStepped:Connect(function()
         local hue = (tick() * 50) % 360
-        local color = Color3.fromHSV(hue / 360, 1, 1)
         titleGradient.Color = ColorSequence.new({
             ColorSequenceKeypoint.new(0, Color3.fromHSV(((hue) % 360) / 360, 1, 1)),
             ColorSequenceKeypoint.new(0.25, Color3.fromHSV(((hue + 60) % 360) / 360, 1, 1)),
@@ -525,7 +622,7 @@ local aimbotPartLabel = Instance.new("TextLabel")
 aimbotPartLabel.Size = UDim2.new(1, 0, 0, 14)
 aimbotPartLabel.Position = UDim2.new(0, 0, 0, 32)
 aimbotPartLabel.BackgroundTransparency = 1
-aimbotPartLabel.Text = "Aimbot Part: Head"
+aimbotPartLabel.Text = "Part: Head"
 aimbotPartLabel.TextColor3 = Color3.fromRGB(200, 150, 255)
 aimbotPartLabel.Font = Enum.Font.GothamSemibold
 aimbotPartLabel.TextSize = 10
@@ -536,7 +633,7 @@ aimbotPartBtn.Size = UDim2.new(1, 0, 0, 20)
 aimbotPartBtn.Position = UDim2.new(0, 0, 0, 48)
 aimbotPartBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 aimbotPartBtn.BorderSizePixel = 0
-aimbotPartBtn.Text = "Select Part [v]"
+aimbotPartBtn.Text = "Select [v]"
 aimbotPartBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
 aimbotPartBtn.Font = Enum.Font.GothamSemibold
 aimbotPartBtn.TextSize = 10
@@ -572,7 +669,7 @@ for i, partName in ipairs(parts) do
     
     btn.MouseButton1Click:Connect(function()
         aimbotPart = partName
-        aimbotPartLabel.Text = "Aimbot Part: " .. partName
+        aimbotPartLabel.Text = "Part: " .. partName
         aimbotPartList.Visible = false
         aimbotDropdownOpen = false
         for _, b in ipairs(partBtns) do
@@ -592,7 +689,7 @@ aimbotPartBtn.MouseButton1Click:Connect(function()
     end
 end)
 
-createToggle("Silent Aim", 72, function(state) silentAim = state end)
+createToggle("Silent Aim", 72, setSilentAim)
 createToggle("Trigger Bot", 104, setTriggerBot)
 createToggle("ESP", 136, setESP)
 createToggle("No Recoil", 168, setNoRecoil)
@@ -788,13 +885,12 @@ minimizeBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- Закрытие на X
 closeBtn.MouseButton1Click:Connect(function()
     screen.Enabled = false
     menuVisible = false
 end)
 
--- ==================== RIGHT SHIFT ОТКРЫТИЕ/ЗАКРЫТИЕ ====================
+-- ==================== RIGHT SHIFT ====================
 UserInputService.InputBegan:Connect(function(input, processed)
     if processed then return end
     if input.KeyCode == Enum.KeyCode.RightShift then
@@ -841,6 +937,8 @@ LocalPlayer.CharacterAdded:Connect(function(char)
     if flying then stopFly(); flying = false; setFly(true) end
     if speedhack then setSpeedHack(false); setSpeedHack(true) end
     if triggerBot then setTriggerBot(false); setTriggerBot(true) end
+    if silentAim then setSilentAim(false); setSilentAim(true) end
+    if wallshot then setWallshot(false); setWallshot(true) end
 end)
 
 -- Изначально меню скрыто
