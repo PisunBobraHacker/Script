@@ -1,5 +1,5 @@
--- // Steal a Brainrot — Final Script v10 for Xeno
--- // Имба Void Touch из v3 + всё из v9, без Anti TP Back
+-- // Steal a Brainrot — Final Script v11 for Xeno
+-- // Void Touch с видимой сферой + регулировка размера
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -25,11 +25,13 @@ local baseLocked = false
 local espEnabled = false
 local speedMultiplier = 2
 local voidTarget = nil
+local voidRadius = 15
 
 local noclipConn, antihitConn, voidtouchConn = nil, nil, nil
 local espObjects = {}
 local dropdownOpen = false
 local dropdownButtons = {}
+local voidSphere = nil
 
 -- ==================== ФУНКЦИИ ====================
 
@@ -117,10 +119,46 @@ local function setAntiHit(state)
     end
 end
 
--- VOID TOUCH (имба из v3)
+-- VOID SPHERE (видимая только мне)
+local function updateVoidSphere()
+    if voidSphere then
+        voidSphere.Size = Vector3.new(voidRadius * 2, voidRadius * 2, voidRadius * 2)
+    end
+end
+
+local function createVoidSphere()
+    if voidSphere then voidSphere:Destroy() end
+    voidSphere = Instance.new("Part")
+    voidSphere.Name = "VoidSphere"
+    voidSphere.Shape = Enum.PartType.Ball
+    voidSphere.Size = Vector3.new(voidRadius * 2, voidRadius * 2, voidRadius * 2)
+    voidSphere.Anchored = true
+    voidSphere.CanCollide = false
+    voidSphere.Transparency = 0.7
+    voidSphere.Color = Color3.fromRGB(255, 0, 0)
+    voidSphere.Material = Enum.Material.ForceField
+    voidSphere.Parent = Workspace
+    
+    -- Подсветка по краям
+    local highlight = Instance.new("Highlight")
+    highlight.FillTransparency = 1
+    highlight.OutlineColor = Color3.fromRGB(255, 0, 0)
+    highlight.OutlineTransparency = 0
+    highlight.Parent = voidSphere
+end
+
+local function removeVoidSphere()
+    if voidSphere then
+        voidSphere:Destroy()
+        voidSphere = nil
+    end
+end
+
+-- VOID TOUCH
 local function setVoidTouch(state)
     voidtouch = state
     if state then
+        createVoidSphere()
         local function findEnemies()
             local enemies = {}
             if voidTarget then
@@ -162,14 +200,19 @@ local function setVoidTouch(state)
         
         voidtouchConn = RunService.Heartbeat:Connect(function()
             if not Character or not HumanoidRootPart then return end
+            
+            -- Обновляем позицию сферы
+            if voidSphere then
+                voidSphere.Position = HumanoidRootPart.Position
+            end
+            
             local enemies = findEnemies()
             local myPos = HumanoidRootPart.Position
-            local voidDistance = 15
             
             for _, enemy in ipairs(enemies) do
                 if enemy.root and enemy.root.Parent then
                     local dist = (enemy.root.Position - myPos).Magnitude
-                    if dist <= voidDistance then
+                    if dist <= voidRadius then
                         local direction = (enemy.root.Position - myPos).Unit
                         if direction.Magnitude < 0.1 then
                             direction = Vector3.new(math.random(-1, 1), 1, math.random(-1, 1)).Unit
@@ -188,6 +231,7 @@ local function setVoidTouch(state)
         end)
     else
         if voidtouchConn then voidtouchConn:Disconnect(); voidtouchConn = nil end
+        removeVoidSphere()
     end
 end
 
@@ -325,8 +369,8 @@ screen.Name = "BrainrotHack"
 screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 220, 0, 490)
-mainFrame.Position = UDim2.new(0, 20, 0.5, -245)
+mainFrame.Size = UDim2.new(0, 220, 0, 530)
+mainFrame.Position = UDim2.new(0, 20, 0.5, -265)
 mainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
 mainFrame.BorderSizePixel = 0
 mainFrame.BackgroundTransparency = 0.05
@@ -346,7 +390,7 @@ local titleText = Instance.new("TextLabel")
 titleText.Size = UDim2.new(0.7, 0, 1, 0)
 titleText.Position = UDim2.new(0, 10, 0, 0)
 titleText.BackgroundTransparency = 1
-titleText.Text = "Brainrot Hack v10"
+titleText.Text = "Brainrot Hack v11"
 titleText.TextColor3 = Color3.fromRGB(255, 255, 255)
 titleText.Font = Enum.Font.GothamBold
 titleText.TextSize = 13
@@ -534,10 +578,60 @@ dropdownBtn.MouseButton1Click:Connect(function()
     end
 end)
 
+-- Void Radius control
+local radiusLabel = Instance.new("TextLabel")
+radiusLabel.Size = UDim2.new(1, 0, 0, 16)
+radiusLabel.Position = UDim2.new(0, 0, 0, 288)
+radiusLabel.BackgroundTransparency = 1
+radiusLabel.Text = "Void Radius: " .. voidRadius
+radiusLabel.TextColor3 = Color3.fromRGB(255, 150, 150)
+radiusLabel.Font = Enum.Font.GothamSemibold
+radiusLabel.TextSize = 11
+radiusLabel.TextXAlignment = Enum.TextXAlignment.Left
+radiusLabel.Parent = content
+
+local radiusMinus = Instance.new("TextButton")
+radiusMinus.Size = UDim2.new(0, 28, 0, 20)
+radiusMinus.Position = UDim2.new(0, 0, 0, 306)
+radiusMinus.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+radiusMinus.BorderSizePixel = 0
+radiusMinus.Text = "-"
+radiusMinus.TextColor3 = Color3.fromRGB(255, 255, 255)
+radiusMinus.Font = Enum.Font.GothamBold
+radiusMinus.TextSize = 14
+radiusMinus.AutoButtonColor = false
+radiusMinus.Parent = content
+Instance.new("UICorner", radiusMinus).CornerRadius = UDim.new(0, 4)
+
+local radiusPlus = Instance.new("TextButton")
+radiusPlus.Size = UDim2.new(0, 28, 0, 20)
+radiusPlus.Position = UDim2.new(1, -28, 0, 306)
+radiusPlus.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+radiusPlus.BorderSizePixel = 0
+radiusPlus.Text = "+"
+radiusPlus.TextColor3 = Color3.fromRGB(255, 255, 255)
+radiusPlus.Font = Enum.Font.GothamBold
+radiusPlus.TextSize = 14
+radiusPlus.AutoButtonColor = false
+radiusPlus.Parent = content
+Instance.new("UICorner", radiusPlus).CornerRadius = UDim.new(0, 4)
+
+radiusMinus.MouseButton1Click:Connect(function()
+    voidRadius = math.max(voidRadius - 5, 5)
+    radiusLabel.Text = "Void Radius: " .. voidRadius
+    updateVoidSphere()
+end)
+
+radiusPlus.MouseButton1Click:Connect(function()
+    voidRadius = math.min(voidRadius + 5, 100)
+    radiusLabel.Text = "Void Radius: " .. voidRadius
+    updateVoidSphere()
+end)
+
 -- Speed
 local speedLabel = Instance.new("TextLabel")
 speedLabel.Size = UDim2.new(1, 0, 0, 16)
-speedLabel.Position = UDim2.new(0, 0, 0, 288)
+speedLabel.Position = UDim2.new(0, 0, 0, 332)
 speedLabel.BackgroundTransparency = 1
 speedLabel.Text = "Speed: x" .. speedMultiplier
 speedLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
@@ -548,7 +642,7 @@ speedLabel.Parent = content
 
 local minusBtn = Instance.new("TextButton")
 minusBtn.Size = UDim2.new(0, 28, 0, 20)
-minusBtn.Position = UDim2.new(0, 0, 0, 306)
+minusBtn.Position = UDim2.new(0, 0, 0, 350)
 minusBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
 minusBtn.BorderSizePixel = 0
 minusBtn.Text = "-"
@@ -561,7 +655,7 @@ Instance.new("UICorner", minusBtn).CornerRadius = UDim.new(0, 4)
 
 local plusBtn = Instance.new("TextButton")
 plusBtn.Size = UDim2.new(0, 28, 0, 20)
-plusBtn.Position = UDim2.new(1, -28, 0, 306)
+plusBtn.Position = UDim2.new(1, -28, 0, 350)
 plusBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
 plusBtn.BorderSizePixel = 0
 plusBtn.Text = "+"
@@ -587,7 +681,7 @@ end)
 -- Teleport
 local teleportBtn = Instance.new("TextButton")
 teleportBtn.Size = UDim2.new(1, 0, 0, 28)
-teleportBtn.Position = UDim2.new(0, 0, 0, 334)
+teleportBtn.Position = UDim2.new(0, 0, 0, 378)
 teleportBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
 teleportBtn.BorderSizePixel = 0
 teleportBtn.Text = "Teleport to Base"
