@@ -1,8 +1,6 @@
 -- =============================================
--- ЕБАНУТАЯ КРЫТИЛКА v1.0
--- Меняет только твой хитбокс
--- Чужие хитбоксы не трогает
--- Камера не трогается
+-- ЕБАНУТАЯ КРЫТИЛКА + ПОЛЁТ v2.0
+-- Крытилка и полёт работают отдельно
 -- =============================================
 
 local Players = game:GetService("Players")
@@ -16,13 +14,16 @@ local CoreGui = game:GetService("CoreGui")
 -- ПЕРЕМЕННЫЕ
 -- =============================================
 local antiAimEnabled = false
+local flyEnabled = false
 local connection = nil
-local mode = "Chaos"  -- "Chaos", "Spin", "Twitch", "Random"
+local flyConnection = nil
+local mode = "Chaos"
 local speed = 15
 local intensity = 90
+local flySpeed = 50
 
 -- =============================================
--- ФУНКЦИЯ КРЫТИЛКИ (Меняет только твой хитбокс)
+-- ФУНКЦИЯ КРЫТИЛКИ (ТОЛЬКО ХИТБОКС)
 -- =============================================
 local function applyAntiAim()
     if not antiAimEnabled then return end
@@ -30,27 +31,22 @@ local function applyAntiAim()
     local char = LocalPlayer.Character
     if not char then return end
     
-    -- БЕРЁМ ТОЛЬКО СВОЙ ХИТБОКС
     local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("LowerTorso")
     local head = char:FindFirstChild("Head")
     
     if not root then return end
     
-    local t = tick() * speed * 0.1
+    -- СОХРАНЯЕМ ПОЗИЦИЮ (НЕ МЕНЯЕМ!)
     local pos = root.Position
+    local t = tick() * speed * 0.1
     local maxAngle = math.rad(intensity)
     
-    -- =============================================
-    -- РЕЖИМЫ КРЫТИЛКИ
-    -- =============================================
-    
+    -- МЕНЯЕМ ТОЛЬКО УГЛЫ (НЕ ПОЗИЦИЮ!)
     if mode == "Chaos" then
-        -- Полный хаос (меняет всё рандомно)
         local angleX = math.sin(t * 0.7) * maxAngle
         local angleY = math.cos(t * 1.3) * maxAngle * 1.5
         local angleZ = math.sin(t * 2.1) * maxAngle * 0.5
         
-        -- Резкие скачки
         if math.sin(t * 0.5) > 0.8 then
             angleY = angleY + maxAngle
         end
@@ -59,7 +55,6 @@ local function applyAntiAim()
         root.CFrame = CFrame.new(pos) * offset
         
     elseif mode == "Spin" then
-        -- Бесконечное вращение
         local angleY = t * 2
         local angleX = math.sin(t * 0.3) * maxAngle * 0.3
         local angleZ = math.cos(t * 0.4) * maxAngle * 0.2
@@ -68,7 +63,6 @@ local function applyAntiAim()
         root.CFrame = CFrame.new(pos) * offset
         
     elseif mode == "Twitch" then
-        -- Резкие дёрганья
         local twitch = math.floor(t / 0.2) % 2 == 0 and 1 or -1
         local angleX = twitch * maxAngle * 0.5
         local angleY = math.sin(t * 0.5) * maxAngle * 1.5
@@ -78,7 +72,6 @@ local function applyAntiAim()
         root.CFrame = CFrame.new(pos) * offset
         
     elseif mode == "Random" then
-        -- Абсолютный рандом
         local seed = tick() * 0.1
         local angleX = math.sin(seed * 1.3) * maxAngle
         local angleY = math.cos(seed * 2.7) * maxAngle * 1.5
@@ -88,7 +81,7 @@ local function applyAntiAim()
         root.CFrame = CFrame.new(pos) * offset
     end
     
-    -- Дёргаем голову (тоже только свою)
+    -- Дёргаем голову
     if head then
         head.CFrame = head.CFrame * CFrame.Angles(
             math.sin(t * 1.7) * 0.3,
@@ -99,8 +92,55 @@ local function applyAntiAim()
 end
 
 -- =============================================
--- ФУНКЦИЯ ВКЛЮЧЕНИЯ
+-- ФУНКЦИЯ ПОЛЁТА (ТОЛЬКО ПОЗИЦИЯ)
 -- =============================================
+local function applyFly()
+    if not flyEnabled then return end
+    
+    local char = LocalPlayer.Character
+    if not char then return end
+    
+    local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("LowerTorso")
+    if not root then return end
+    
+    -- Отключаем гравитацию
+    local humanoid = char:FindFirstChild("Humanoid")
+    if humanoid then
+        humanoid.PlatformStand = true
+    end
+    
+    -- Управление полётом
+    local moveVector = Vector3.new(0, 0, 0)
+    
+    if UserInputService:IsKeyDown(Enum.KeyCode.W) then 
+        moveVector = moveVector + (Camera.CFrame.LookVector * flySpeed)
+    end
+    if UserInputService:IsKeyDown(Enum.KeyCode.S) then 
+        moveVector = moveVector - (Camera.CFrame.LookVector * flySpeed)
+    end
+    if UserInputService:IsKeyDown(Enum.KeyCode.A) then 
+        moveVector = moveVector - (Camera.CFrame.RightVector * flySpeed)
+    end
+    if UserInputService:IsKeyDown(Enum.KeyCode.D) then 
+        moveVector = moveVector + (Camera.CFrame.RightVector * flySpeed)
+    end
+    if UserInputService:IsKeyDown(Enum.KeyCode.E) then 
+        moveVector = moveVector + Vector3.new(0, flySpeed, 0)
+    end
+    if UserInputService:IsKeyDown(Enum.KeyCode.Q) then 
+        moveVector = moveVector + Vector3.new(0, -flySpeed, 0)
+    end
+    
+    -- Передвигаем (НЕ МЕНЯЕМ УГЛЫ!)
+    root.CFrame = root.CFrame + (moveVector * 0.1)
+    root.Velocity = Vector3.new(0, 0, 0) -- Убираем инерцию
+end
+
+-- =============================================
+-- ФУНКЦИИ ВКЛЮЧЕНИЯ
+-- =============================================
+
+-- Вкл/Выкл крытилку
 local function toggleAntiAim()
     antiAimEnabled = not antiAimEnabled
     
@@ -121,12 +161,46 @@ local function toggleAntiAim()
             if root then
                 root.CFrame = CFrame.new(root.Position) * CFrame.Angles(0, 0, 0)
             end
-            local head = char:FindFirstChild("Head")
-            if head then
-                head.CFrame = CFrame.new(head.Position) * CFrame.Angles(0, 0, 0)
-            end
         end
         print("🌀 Ебанутая крытилка ВЫКЛЮЧЕНА!")
+    end
+end
+
+-- Вкл/Выкл полёт
+local function toggleFly()
+    flyEnabled = not flyEnabled
+    
+    if flyEnabled then
+        if not flyConnection then
+            flyConnection = RunService.RenderStepped:Connect(applyFly)
+        end
+        -- Отключаем гравитацию
+        local char = LocalPlayer.Character
+        if char then
+            local humanoid = char:FindFirstChild("Humanoid")
+            if humanoid then
+                humanoid.PlatformStand = true
+            end
+            local root = char:FindFirstChild("HumanoidRootPart")
+            if root then
+                root.Anchored = false
+            end
+        end
+        print("✈️ Полёт ВКЛЮЧЕН!")
+    else
+        if flyConnection then
+            flyConnection:Disconnect()
+            flyConnection = nil
+        end
+        -- Включаем гравитацию
+        local char = LocalPlayer.Character
+        if char then
+            local humanoid = char:FindFirstChild("Humanoid")
+            if humanoid then
+                humanoid.PlatformStand = false
+            end
+        end
+        print("✈️ Полёт ВЫКЛЮЧЕН!")
     end
 end
 
@@ -142,8 +216,8 @@ local function createMenu()
 
     -- Главная рамка
     local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 280, 0, 320)
-    frame.Position = UDim2.new(0.5, -140, 0.5, -160)
+    frame.Size = UDim2.new(0, 280, 0, 420)
+    frame.Position = UDim2.new(0.5, -140, 0.5, -210)
     frame.BackgroundColor3 = Color3.fromRGB(10, 10, 20)
     frame.BackgroundTransparency = 0.1
     frame.BorderSizePixel = 2
@@ -186,7 +260,6 @@ local function createMenu()
         button.AutoButtonColor = false
         button.Parent = container
 
-        -- Эффекты
         button.MouseEnter:Connect(function()
             TweenService:Create(button, TweenInfo.new(0.3), {
                 BackgroundTransparency = 0.1,
@@ -215,7 +288,7 @@ local function createMenu()
         return button
     end
 
-    -- Создаём выпадающий список (Dropdown)
+    -- Создаём выпадающий список
     local function createDropdown(options, callback)
         local dropdown = Instance.new("Frame")
         dropdown.Size = UDim2.new(1, 0, 0, 35)
@@ -296,171 +369,8 @@ local function createMenu()
     -- СОЗДАЁМ ЭЛЕМЕНТЫ МЕНЮ
     -- =============================================
 
-    -- Toggle кнопка
-    local toggleButton = createButton("🌀 ВКЛЮЧИТЬ КРЫТИЛКУ", function()
+    -- Кнопка крытилки
+    local antiButton = createButton("🌀 КРЫТИЛКА (F1)", function()
         toggleAntiAim()
-        toggleButton.Text = antiAimEnabled and "🌀 ВЫКЛЮЧИТЬ КРЫТИЛКУ" or "🌀 ВКЛЮЧИТЬ КРЫТИЛКУ"
-        toggleButton.BackgroundColor3 = antiAimEnabled and Color3.fromRGB(100, 0, 0) or Color3.fromRGB(30, 30, 50)
-    end, Color3.fromRGB(30, 30, 50))
-
-    -- Выбор режима
-    createDropdown({"Chaos", "Spin", "Twitch", "Random"}, function(value)
-        mode = value
-        print("🌀 Режим изменён на: " .. value)
-    end)
-
-    -- Ползунок скорости
-    local speedLabel = Instance.new("TextLabel")
-    speedLabel.Size = UDim2.new(1, 0, 0, 20)
-    speedLabel.Position = UDim2.new(0, 0, 0, #container:GetChildren() * 40 + 10)
-    speedLabel.BackgroundTransparency = 1
-    speedLabel.Text = "Скорость: " .. speed
-    speedLabel.TextColor3 = Color3.fromRGB(200, 200, 255)
-    speedLabel.TextScaled = true
-    speedLabel.Font = Enum.Font.GothamMedium
-    speedLabel.Parent = container
-
-    local speedSlider = Instance.new("Frame")
-    speedSlider.Size = UDim2.new(1, 0, 0, 20)
-    speedSlider.Position = UDim2.new(0, 0, 0, #container:GetChildren() * 40 + 32)
-    speedSlider.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
-    speedSlider.BackgroundTransparency = 0.5
-    speedSlider.BorderSizePixel = 0
-    speedSlider.Parent = container
-
-    local sliderFill = Instance.new("Frame")
-    sliderFill.Size = UDim2.new((speed - 5) / 25, 0, 1, 0)
-    sliderFill.BackgroundColor3 = Color3.fromRGB(255, 0, 100)
-    sliderFill.BorderSizePixel = 0
-    sliderFill.Parent = speedSlider
-
-    speedSlider.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            while UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) do
-                local mousePos = UserInputService:GetMouseLocation()
-                local sliderPos = speedSlider.AbsolutePosition
-                local percent = math.clamp((mousePos.X - sliderPos.X) / speedSlider.AbsoluteSize.X, 0, 1)
-                speed = math.floor(percent * 25 + 5)
-                sliderFill.Size = UDim2.new(percent, 0, 1, 0)
-                speedLabel.Text = "Скорость: " .. speed
-                task.wait()
-            end
-        end
-    end)
-
-    -- Ползунок интенсивности
-    local intensityLabel = Instance.new("TextLabel")
-    intensityLabel.Size = UDim2.new(1, 0, 0, 20)
-    intensityLabel.Position = UDim2.new(0, 0, 0, #container:GetChildren() * 40 + 55)
-    intensityLabel.BackgroundTransparency = 1
-    intensityLabel.Text = "Интенсивность: " .. intensity
-    intensityLabel.TextColor3 = Color3.fromRGB(200, 200, 255)
-    intensityLabel.TextScaled = true
-    intensityLabel.Font = Enum.Font.GothamMedium
-    intensityLabel.Parent = container
-
-    local intensitySlider = Instance.new("Frame")
-    intensitySlider.Size = UDim2.new(1, 0, 0, 20)
-    intensitySlider.Position = UDim2.new(0, 0, 0, #container:GetChildren() * 40 + 77)
-    intensitySlider.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
-    intensitySlider.BackgroundTransparency = 0.5
-    intensitySlider.BorderSizePixel = 0
-    intensitySlider.Parent = container
-
-    local intensityFill = Instance.new("Frame")
-    intensityFill.Size = UDim2.new((intensity - 30) / 150, 0, 1, 0)
-    intensityFill.BackgroundColor3 = Color3.fromRGB(255, 0, 200)
-    intensityFill.BorderSizePixel = 0
-    intensityFill.Parent = intensitySlider
-
-    intensitySlider.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            while UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) do
-                local mousePos = UserInputService:GetMouseLocation()
-                local sliderPos = intensitySlider.AbsolutePosition
-                local percent = math.clamp((mousePos.X - sliderPos.X) / intensitySlider.AbsoluteSize.X, 0, 1)
-                intensity = math.floor(percent * 150 + 30)
-                intensityFill.Size = UDim2.new(percent, 0, 1, 0)
-                intensityLabel.Text = "Интенсивность: " .. intensity
-                task.wait()
-            end
-        end
-    end)
-
-    -- Обновляем размер контейнера
-    container.Size = UDim2.new(1, -20, 0, #container:GetChildren() * 40 + 100)
-    frame.Size = UDim2.new(0, 280, 0, #container:GetChildren() * 40 + 150)
-
-    -- =============================================
-    -- ПЕРЕТАСКИВАНИЕ МЕНЮ
-    -- =============================================
-    local dragging = false
-    local dragInput = nil
-    local dragStart = nil
-    local startPos = nil
-
-    title.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = true
-            dragStart = input.Position
-            startPos = frame.Position
-            
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
-            end)
-        end
-    end)
-
-    title.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement then
-            dragInput = input
-        end
-    end)
-
-    UserInputService.InputChanged:Connect(function(input)
-        if input == dragInput and dragging then
-            local delta = input.Position - dragStart
-            frame.Position = UDim2.new(
-                startPos.X.Scale,
-                startPos.X.Offset + delta.X,
-                startPos.Y.Scale,
-                startPos.Y.Offset + delta.Y
-            )
-        end
-    end)
-
-    -- =============================================
-    -- ГОРЯЧИЕ КЛАВИШИ
-    -- =============================================
-    UserInputService.InputBegan:Connect(function(input, processed)
-        if processed then return end
-        
-        -- F1 - Вкл/Выкл крытилку
-        if input.KeyCode == Enum.KeyCode.F1 then
-            toggleAntiAim()
-            toggleButton.Text = antiAimEnabled and "🌀 ВЫКЛЮЧИТЬ КРЫТИЛКУ" or "🌀 ВКЛЮЧИТЬ КРЫТИЛКУ"
-            toggleButton.BackgroundColor3 = antiAimEnabled and Color3.fromRGB(100, 0, 0) or Color3.fromRGB(30, 30, 50)
-        end
-        
-        -- F2 - Скрыть/Показать меню
-        if input.KeyCode == Enum.KeyCode.F2 then
-            frame.Visible = not frame.Visible
-        end
-    end)
-
-    print("✅ Меню создано!")
-    print("🔄 F1 - Вкл/Выкл крытилку")
-    print("🔄 F2 - Скрыть/Показать меню")
-end
-
--- =============================================
--- ЗАПУСК
--- =============================================
-task.wait(1)
-createMenu()
-
-print("🔥 ЕБАНУТАЯ КРЫТИЛКА ЗАГРУЖЕНА!")
-print("💀 Твой хитбокс теперь НЕПРЕДСКАЗУЕМ!")
-print("🎯 Читеры и обычные игроки НЕ ПОПАДУТ!")
+        antiButton.Text = antiAimEnabled and "🌀 КРЫТИЛКА ВЫКЛ (F1)" or "🌀 КРЫТИЛКА (F1)"
+        antiButton.BackgroundColor3 = antiA
