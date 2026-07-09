@@ -1,161 +1,219 @@
 -- =============================================
--- ЕБАНУТАЯ КРЫТИЛКА С РАЗРЫВОМ ХИТБОКСА
+-- АБСОЛЮТНЫЙ ИМБА-СКРИПТ
 -- F2 - Вкл/Выкл
--- Твоя модель крутится, хитбокс в другом месте
+-- ESP + Silent Aim сквозь стены + Хитбокс за картой
 -- =============================================
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-
--- =============================================
--- НАСТРОЙКИ
--- =============================================
-local mode = "Spin"  -- Spin, Jitter, Desync, Chaos
-local speed = 20
-local offsetDistance = 5  -- На сколько хитбокс отрывается от модели
+local Workspace = game:GetService("Workspace")
+local Camera = Workspace.CurrentCamera
 
 -- =============================================
 -- ПЕРЕМЕННЫЕ
 -- =============================================
 local enabled = false
 local connection = nil
+local espConnection = nil
+local silentConnection = nil
+local espObjects = {}
 
 -- =============================================
--- КРЫТИЛКА С РАЗРЫВОМ
+-- ФУНКЦИЯ 1: ХИТБОКС ЗА КАРТОЙ
 -- =============================================
-local function applyAntiAim()
+local function hideHitbox()
     if not enabled then return end
     
     local char = LocalPlayer.Character
     if not char then return end
     
-    -- Основные части
-    local root = char:FindFirstChild("HumanoidRootPart")
-    local head = char:FindFirstChild("Head")
-    local torso = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso")
-    
-    if not root then return end
-    
-    local t = tick() * speed * 0.1
-    local pos = root.Position
-    
-    -- =============================================
-    -- КРУТИМ МОДЕЛЬ (она ебануто вращается)
-    -- =============================================
-    
-    if mode == "Spin" then
-        -- Бесконечное вращение как юла
-        local angleY = t * 3
-        local angleX = math.sin(t * 0.5) * 0.3
-        local angleZ = math.cos(t * 0.7) * 0.2
-        
-        root.CFrame = CFrame.new(pos) * CFrame.Angles(angleX, angleY, angleZ)
-        
-        -- Голова крутится в другую сторону (для эффекта)
-        if head then
-            head.CFrame = head.CFrame * CFrame.Angles(0, math.sin(t * 2) * 0.5, 0)
-        end
-        
-    elseif mode == "Jitter" then
-        -- Резкие дёрганья + вращение
-        local twitch = math.floor(t / 0.15) % 2 == 0 and 1 or -1
-        local angleY = t * 5 + twitch * 0.5
-        local angleX = twitch * 0.5 + math.sin(t * 0.7) * 0.3
-        local angleZ = twitch * 0.3 + math.cos(t * 0.5) * 0.2
-        
-        root.CFrame = CFrame.new(pos) * CFrame.Angles(angleX, angleY, angleZ)
-        
-    elseif mode == "Desync" then
-        -- Разрыв между головой и телом (десинхрон)
-        local angleY = t * 2
-        local angleX = math.sin(t * 0.3) * 0.5
-        local angleZ = math.cos(t * 0.4) * 0.3
-        
-        root.CFrame = CFrame.new(pos) * CFrame.Angles(angleX, angleY, angleZ)
-        
-        -- Голова смотрит в другую сторону
-        if head then
-            local headAngle = t * 1.5 + math.pi
-            head.CFrame = head.CFrame * CFrame.Angles(0, headAngle, 0)
-        end
-        
-        -- Торс тоже дёргается отдельно
-        if torso then
-            torso.CFrame = torso.CFrame * CFrame.Angles(
-                math.sin(t * 0.7) * 0.3,
-                math.cos(t * 0.5) * 0.3,
-                math.sin(t * 0.9) * 0.2
-            )
-        end
-        
-    elseif mode == "Chaos" then
-        -- Полный хаос (всё крутится рандомно)
-        local angleX = math.sin(t * 0.7) * 1.5
-        local angleY = math.cos(t * 1.3) * 3
-        local angleZ = math.sin(t * 2.1) * 0.5
-        
-        root.CFrame = CFrame.new(pos) * CFrame.Angles(angleX, angleY, angleZ)
-        
-        if head then
-            head.CFrame = head.CFrame * CFrame.Angles(
-                math.sin(t * 1.7) * 0.5,
-                math.cos(t * 0.9) * 0.5,
-                math.sin(t * 2.3) * 0.3
-            )
-        end
-        
-        if torso then
-            torso.CFrame = torso.CFrame * CFrame.Angles(
-                math.sin(t * 1.1) * 0.4,
-                math.cos(t * 0.8) * 0.4,
-                math.sin(t * 1.5) * 0.3
-            )
-        end
-    end
-    
-    -- =============================================
-    -- РАЗРЫВ ХИТБОКСА (хитбокс в другом месте)
-    -- =============================================
-    
-    -- Создаём невидимую часть, которая будет хитбоксом
-    local fakeHitbox = char:FindFirstChild("FakeHitbox")
-    if not fakeHitbox then
-        fakeHitbox = Instance.new("Part")
-        fakeHitbox.Name = "FakeHitbox"
-        fakeHitbox.Size = Vector3.new(2, 2, 2)
-        fakeHitbox.Transparency = 1
-        fakeHitbox.CanCollide = false
-        fakeHitbox.Anchored = true
-        fakeHitbox.Parent = char
-    end
-    
-    -- Хитбокс летает вокруг модели
-    local angle = t * 2
-    local radius = offsetDistance
-    fakeHitbox.Position = pos + Vector3.new(
-        math.cos(angle) * radius,
-        math.sin(angle * 0.5) * 2,
-        math.sin(angle) * radius
-    )
-    
-    -- =============================================
-    -- ПЕРЕНАПРАВЛЯЕМ УРОН НА ФЕЙКОВЫЙ ХИТБОКС
-    -- =============================================
-    
-    -- Отключаем коллизию у реальных частей
+    -- Прячем все части тела
     for _, part in pairs(char:GetChildren()) do
-        if part:IsA("BasePart") and part.Name ~= "FakeHitbox" then
+        if part:IsA("BasePart") then
+            part.Transparency = 1
             part.CanCollide = false
+            part.CastShadow = false
         end
     end
     
-    -- У реальных частей делаем прозрачность (для эффекта)
-    for _, part in pairs(char:GetChildren()) do
-        if part:IsA("BasePart") and part.Name ~= "FakeHitbox" then
-            part.Transparency = 0.3
+    -- Создаём фейк за картой
+    local fakeRoot = char:FindFirstChild("FakeRoot")
+    if not fakeRoot then
+        fakeRoot = Instance.new("Part")
+        fakeRoot.Name = "FakeRoot"
+        fakeRoot.Size = Vector3.new(5, 5, 5)
+        fakeRoot.Transparency = 1
+        fakeRoot.CanCollide = false
+        fakeRoot.Anchored = true
+        fakeRoot.Parent = char
+    end
+    
+    -- Отправляем за карту
+    fakeRoot.Position = Vector3.new(99999, 99999, 99999)
+end
+
+-- =============================================
+-- ФУНКЦИЯ 2: ESP (ВСЕХ ВИДНО)
+-- =============================================
+local function updateESP()
+    if not enabled then return end
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local root = player.Character:FindFirstChild("HumanoidRootPart")
+            local head = player.Character:FindFirstChild("Head")
+            
+            if root then
+                -- Создаём ESP объекты
+                if not espObjects[player] then
+                    -- Коробка
+                    local box = Drawing.new("Box")
+                    box.Thickness = 2
+                    box.Color = Color3.fromRGB(255, 0, 0)
+                    box.Transparency = 0.5
+                    box.Visible = true
+                    
+                    -- Имя
+                    local name = Drawing.new("Text")
+                    name.Size = 14
+                    name.Center = true
+                    name.Color = Color3.fromRGB(255, 255, 255)
+                    name.Outline = true
+                    name.Font = 2
+                    name.Visible = true
+                    
+                    -- Дистанция
+                    local dist = Drawing.new("Text")
+                    dist.Size = 12
+                    dist.Center = true
+                    dist.Color = Color3.fromRGB(0, 255, 0)
+                    dist.Outline = true
+                    dist.Font = 2
+                    dist.Visible = true
+                    
+                    espObjects[player] = {box = box, name = name, dist = dist}
+                end
+                
+                -- Получаем позицию на экране
+                local screenPos, onScreen = Camera:WorldToViewportPoint(root.Position)
+                
+                if onScreen and screenPos.Z > 0 then
+                    local distance = (Camera.CFrame.Position - root.Position).Magnitude
+                    local boxSize = 1000 / screenPos.Z
+                    
+                    -- Обновляем коробку
+                    espObjects[player].box.Position = Vector2.new(
+                        screenPos.X - boxSize / 2,
+                        screenPos.Y - boxSize
+                    )
+                    espObjects[player].box.Size = Vector2.new(boxSize, boxSize * 2)
+                    espObjects[player].box.Visible = true
+                    espObjects[player].box.Color = player.TeamColor and player.TeamColor.Color or Color3.fromRGB(255, 0, 0)
+                    
+                    -- Обновляем имя
+                    espObjects[player].name.Position = Vector2.new(screenPos.X, screenPos.Y - boxSize - 15)
+                    espObjects[player].name.Text = player.Name
+                    espObjects[player].name.Visible = true
+                    
+                    -- Обновляем дистанцию
+                    espObjects[player].dist.Position = Vector2.new(screenPos.X, screenPos.Y + boxSize + 5)
+                    espObjects[player].dist.Text = string.format("%.0fm", distance)
+                    espObjects[player].dist.Visible = true
+                    
+                    -- Линия до врага (для читеров)
+                    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                    if espObjects[player].line then
+                        espObjects[player].line.Position = center
+                        espObjects[player].line.Point = Vector2.new(screenPos.X, screenPos.Y)
+                    else
+                        local line = Drawing.new("Line")
+                        line.Thickness = 1
+                        line.Color = Color3.fromRGB(255, 0, 0)
+                        line.Transparency = 0.3
+                        line.Visible = true
+                        line.Position = center
+                        line.Point = Vector2.new(screenPos.X, screenPos.Y)
+                        espObjects[player].line = line
+                    end
+                else
+                    -- Скрываем если не на экране
+                    espObjects[player].box.Visible = false
+                    espObjects[player].name.Visible = false
+                    espObjects[player].dist.Visible = false
+                    if espObjects[player].line then
+                        espObjects[player].line.Visible = false
+                    end
+                end
+            end
         end
+    end
+    
+    -- Удаляем ESP для игроков, которых больше нет
+    for player, obj in pairs(espObjects) do
+        if not player or not player.Parent then
+            obj.box:Remove()
+            obj.name:Remove()
+            obj.dist:Remove()
+            if obj.line then obj.line:Remove() end
+            espObjects[player] = nil
+        end
+    end
+end
+
+-- =============================================
+-- ФУНКЦИЯ 3: SILENT AIM СКВОЗЬ СТЕНЫ (ИМБА)
+-- =============================================
+local function setupSilentAim()
+    if not enabled then return end
+    
+    local mt = getrawmetatable(game)
+    if mt then
+        local oldIndex = mt.__index
+        mt.__index = newcclosure(function(self, key)
+            if key == "CFrame" and enabled then
+                local origin = self.Position
+                
+                -- Находим ближайшего врага (по центру экрана)
+                local closest = nil
+                local closestDist = math.huge
+                local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                
+                for _, player in pairs(Players:GetPlayers()) do
+                    if player ~= LocalPlayer and player.Character then
+                        local root = player.Character:FindFirstChild("HumanoidRootPart")
+                        if root then
+                            local screenPos, onScreen = Camera:WorldToViewportPoint(root.Position)
+                            if onScreen then
+                                local dist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+                                if dist < closestDist then
+                                    closestDist = dist
+                                    closest = root
+                                end
+                            end
+                        end
+                    end
+                end
+                
+                if closest then
+                    -- Целимся в голову (с упреждением)
+                    local target = closest.Parent:FindFirstChild("Head") or closest
+                    local targetPos = target.Position
+                    
+                    -- Упреждение (для движущихся целей)
+                    local velocity = closest.Velocity or Vector3.new(0, 0, 0)
+                    local distance = (origin - targetPos).Magnitude
+                    local bulletSpeed = 3000
+                    local travelTime = distance / bulletSpeed
+                    targetPos = targetPos + (velocity * travelTime * 0.5)
+                    
+                    -- НЕТ ПРОВЕРКИ НА СТЕНЫ! (имба)
+                    return CFrame.new(origin, targetPos)
+                end
+            end
+            return oldIndex(self, key)
+        end)
     end
 end
 
@@ -166,38 +224,61 @@ local function toggleAntiAim()
     enabled = not enabled
     
     if enabled then
+        -- Хитбокс за картой
         if not connection then
-            connection = RunService.Heartbeat:Connect(applyAntiAim)
+            connection = RunService.Heartbeat:Connect(hideHitbox)
         end
-        print("🌀 ЕБАНУТАЯ КРЫТИЛКА ВКЛЮЧЕНА!")
-        print("💀 Ты крутишься, хитбокс в другом месте!")
+        
+        -- ESP
+        if not espConnection then
+            espConnection = RunService.RenderStepped:Connect(updateESP)
+        end
+        
+        -- Silent Aim сквозь стены
+        setupSilentAim()
+        
+        print("💀 ИМБА-РЕЖИМ ВКЛЮЧЕН!")
+        print("🔥 Хитбокс ЗА КАРТОЙ!")
+        print("👁️ ESP ВКЛЮЧЕН!")
+        print("🔫 Silent Aim СКВОЗЬ СТЕНЫ!")
+        print("🎯 Ты неуязвим и видишь всех!")
     else
+        -- Выключаем всё
         if connection then
             connection:Disconnect()
             connection = nil
         end
-        -- Возвращаем всё в норму
+        
+        if espConnection then
+            espConnection:Disconnect()
+            espConnection = nil
+        end
+        
+        -- Удаляем ESP
+        for player, obj in pairs(espObjects) do
+            obj.box:Remove()
+            obj.name:Remove()
+            obj.dist:Remove()
+            if obj.line then obj.line:Remove() end
+        end
+        espObjects = {}
+        
+        -- Возвращаем хитбокс
         local char = LocalPlayer.Character
         if char then
-            -- Удаляем фейковый хитбокс
-            local fake = char:FindFirstChild("FakeHitbox")
+            local fake = char:FindFirstChild("FakeRoot")
             if fake then fake:Destroy() end
             
-            -- Возвращаем коллизию и прозрачность
             for _, part in pairs(char:GetChildren()) do
                 if part:IsA("BasePart") then
-                    part.CanCollide = true
                     part.Transparency = 0
+                    part.CanCollide = true
+                    part.CastShadow = true
                 end
             end
-            
-            -- Возвращаем нормальное положение
-            local root = char:FindFirstChild("HumanoidRootPart")
-            if root then
-                root.CFrame = CFrame.new(root.Position) * CFrame.Angles(0, 0, 0)
-            end
         end
-        print("🌀 КРЫТИЛКА ВЫКЛЮЧЕНА!")
+        
+        print("🌀 ИМБА-РЕЖИМ ВЫКЛЮЧЕН!")
     end
 end
 
@@ -212,6 +293,18 @@ UserInputService.InputBegan:Connect(function(input, processed)
     end
 end)
 
-print("🔥 ЕБАНУТАЯ КРЫТИЛКА С РАЗРЫВОМ ЗАГРУЖЕНА!")
+-- =============================================
+-- ОБРАБОТЧИК РЕСПАВНА
+-- =============================================
+LocalPlayer.CharacterAdded:Connect(function()
+    if enabled then
+        task.wait(0.5)
+        toggleAntiAim()
+        toggleAntiAim()
+    end
+end)
+
+print("🔥 АБСОЛЮТНЫЙ ИМБА-СКРИПТ ЗАГРУЖЕН!")
 print("🎯 F2 - Вкл/Выкл")
-print("💀 Ты крутишься как юла, хитбокс отдельно!")
+print("💀 Ты неуязвим, видишь всех, стреляешь сквозь стены!")
+print("🚀 БАН? ПОХУЙ!")
